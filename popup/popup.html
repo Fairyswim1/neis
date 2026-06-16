@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>나이스 입력 도우미</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <h1>나이스 입력 도우미</h1>
+    <p class="subtitle">엑셀 → 나이스 자동 입력</p>
+  </header>
+
+  <section class="card">
+    <label class="file-label" for="fileInput">
+      <span class="file-icon">📄</span>
+      <span id="fileName">엑셀 파일 선택 (.xlsx, .xls, .csv)</span>
+      <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" hidden />
+    </label>
+
+    <div class="row" id="sheetRow" hidden>
+      <label for="sheetSelect">시트</label>
+      <select id="sheetSelect"></select>
+    </div>
+
+    <div class="row">
+      <label for="startRow">시작 행</label>
+      <input type="number" id="startRow" min="1" value="1" />
+      <span class="hint">(1 = 첫 번째 행)</span>
+    </div>
+
+    <div class="row">
+      <label for="startCol">시작 열</label>
+      <input type="number" id="startCol" min="1" value="1" />
+    </div>
+
+    <div class="row">
+      <label for="endCol">끝 열</label>
+      <input type="number" id="endCol" min="1" placeholder="자동" />
+      <span class="hint">비우면 마지막 열까지</span>
+    </div>
+
+    <div class="row">
+      <label for="skipHeader">
+        <input type="checkbox" id="skipHeader" />
+        첫 행을 헤더로 건너뛰기
+      </label>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>입력 설정</h2>
+    <div class="row">
+      <label for="tabsBetweenCells">셀 간 Tab 횟수</label>
+      <input type="number" id="tabsBetweenCells" min="0" max="20" value="1" />
+    </div>
+    <div class="row">
+      <label for="tabsAfterRow">행 끝 Tab 횟수</label>
+      <input type="number" id="tabsAfterRow" min="0" max="20" value="0" />
+    </div>
+    <div class="row">
+      <label for="delayMs">입력 간격 (ms)</label>
+      <input type="number" id="delayMs" min="50" max="2000" step="50" value="150" />
+    </div>
+    <p class="help">
+      나이스 화면에서 <strong>첫 번째 입력칸</strong>을 클릭한 뒤 아래 버튼을 누르세요.
+    </p>
+  </section>
+
+  <section class="card preview-card" id="previewSection" hidden>
+    <h2>데이터 미리보기</h2>
+    <div class="preview-meta" id="previewMeta"></div>
+    <div class="preview-wrap">
+      <table id="previewTable"></table>
+    </div>
+  </section>
+
+  <section class="actions">
+    <button type="button" id="btnAll" class="btn primary" disabled>전체 입력</button>
+    <button type="button" id="btnOne" class="btn secondary" disabled>한 행 입력</button>
+    <button type="button" id="btnStop" class="btn danger" hidden>중지</button>
+  </section>
+
+  <p class="status" id="status"></p>
+
+  <footer>
+    <a href="https://github.com/Fairyswim1/neis" target="_blank" rel="noopener">GitHub</a>
+  </footer>
+
+  <script src="../lib/xlsx.full.min.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
