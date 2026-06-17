@@ -5,6 +5,11 @@
 
   const fileInput = $('fileInput');
   const fileName = $('fileName');
+  const fileSource = $('fileSource');
+  const pasteSource = $('pasteSource');
+  const pasteInput = $('pasteInput');
+  const btnPasteLoad = $('btnPasteLoad');
+  const sourceTabs = document.querySelectorAll('.source-tab');
   const sheetRow = $('sheetRow');
   const sheetSelect = $('sheetSelect');
   const startRow = $('startRow');
@@ -28,6 +33,8 @@
   const statusEl = $('status');
 
   let workbook = null;
+  let rawGrid = null;
+  let dataSource = 'file';
   let parsedRows = [];
   let currentRowIndex = 0;
 
@@ -42,6 +49,10 @@
   });
 
   fileInput.addEventListener('change', handleFileSelect);
+  sourceTabs.forEach((tab) => tab.addEventListener('click', () => switchDataSource(tab.dataset.source)));
+  pasteInput.addEventListener('paste', handlePaste);
+  pasteInput.addEventListener('input', handlePasteInput);
+  btnPasteLoad.addEventListener('click', loadFromClipboard);
   sheetSelect.addEventListener('change', refreshPreview);
   startRow.addEventListener('change', refreshPreview);
   startCol.addEventListener('change', refreshPreview);
@@ -172,10 +183,107 @@
     statusEl.className = 'status' + (type ? ` ${type}` : '');
   }
 
+  function switchDataSource(source) {
+    dataSource = source;
+    sourceTabs.forEach((tab) => {
+      tab.classList.toggle('active', tab.dataset.source === source);
+    });
+    fileSource.hidden = source !== 'file';
+    pasteSource.hidden = source !== 'paste';
+    sheetRow.hidden = source !== 'file' || !workbook || workbook.SheetNames.length <= 1;
+
+    if (source === 'paste' && !pasteInput.value.trim()) {
+      rawGrid = null;
+    }
+
+    refreshPreview();
+  }
+
+  function parseClipboardText(text) {
+    if (!text || !text.trim()) return [];
+
+    const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+    while (lines.length > 0 && lines[lines.length - 1] === '') {
+      lines.pop();
+    }
+
+    return lines.map((line) =>
+      line.split('\t').map((cell) => {
+        let val = cell;
+        if (val.startsWith('"') && val.endsWith('"') && val.length >= 2) {
+          val = val.slice(1, -1).replace(/""/g, '"');
+        }
+        return val;
+      })
+    );
+  }
+
+  function sliceGrid(raw) {
+    const sRow = Math.max(1, Number(startRow.value) || 1) - 1;
+    const sCol = Math.max(1, Number(startCol.value) || 1) - 1;
+    const eCol = endCol.value ? Number(endCol.value) - 1 : null;
+
+    let rows = raw.slice(sRow);
+    if (skipHeader.checked && rows.length > 0) {
+      rows = rows.slice(1);
+    }
+
+    return rows
+      .map((row) => {
+        const arr = Array.isArray(row) ? row.slice(sCol) : [];
+        if (eCol != null) {
+          return arr.slice(0, eCol - sCol + 1);
+        }
+        return arr;
+      })
+      .filter((row) => row.some((cell) => cell !== '' && cell != null));
+  }
+
+  function loadRawGrid(raw, label) {
+    rawGrid = raw;
+    currentRowIndex = 0;
+    if (label) fileName.textContent = label;
+    refreshPreview();
+  }
+
+  function handlePasteInput() {
+    if (dataSource !== 'paste') return;
+    loadRawGrid(parseClipboardText(pasteInput.value), null);
+  }
+
+  function handlePaste(e) {
+    if (dataSource !== 'paste') return;
+    const text = e.clipboardData?.getData('text/plain');
+    if (!text) return;
+    e.preventDefault();
+    pasteInput.value = text;
+    const grid = parseClipboardText(text);
+    loadRawGrid(grid, `붙여넣기 (${grid.length}행)`);
+    setStatus('붙여넣기 데이터 로드 완료', 'success');
+  }
+
+  async function loadFromClipboard() {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text.trim()) {
+        setStatus('클립보드가 비어 있습니다. 엑셀에서 먼저 복사해 주세요.', 'error');
+        return;
+      }
+      pasteInput.value = text;
+      const grid = parseClipboardText(text);
+      loadRawGrid(grid, `붙여넣기 (${grid.length}행)`);
+      setStatus('클립보드 데이터 로드 완료', 'success');
+    } catch (err) {
+      setStatus('클립보드 읽기 실패. 입력칸에 직접 Ctrl+V 해 주세요.', 'error');
+    }
+  }
+
   async function handleFileSelect(e) {
     const file = e.target.files[0];
     if (!file) return;
 
+    dataSource = 'file';
+    switchDataSource('file');
     fileName.textContent = file.name;
     setStatus('파일을 읽는 중...');
 
@@ -193,47 +301,35 @@
 
       sheetRow.hidden = workbook.SheetNames.length <= 1;
       currentRowIndex = 0;
-      refreshPreview();
+
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      loadRawGrid(XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }), file.name);
       setStatus(`${file.name} 로드 완료`, 'success');
     } catch (err) {
       setStatus('파일 읽기 실패: ' + err.message, 'error');
       workbook = null;
+      rawGrid = null;
       parsedRows = [];
       updateButtons();
     }
   }
 
   function refreshPreview() {
-    if (!workbook) {
+    if (dataSource === 'file' && workbook) {
+      const sheetName = sheetSelect.value || workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      rawGrid = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    }
+
+    if (!rawGrid || !rawGrid.length) {
       parsedRows = [];
       previewSection.hidden = true;
       updateButtons();
       return;
     }
 
-    const sheetName = sheetSelect.value || workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
-    const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-
-    const sRow = Math.max(1, Number(startRow.value) || 1) - 1;
-    const sCol = Math.max(1, Number(startCol.value) || 1) - 1;
-    let eCol = endCol.value ? Number(endCol.value) - 1 : null;
-
-    let rows = raw.slice(sRow);
-    if (skipHeader.checked && rows.length > 0) {
-      rows = rows.slice(1);
-    }
-
-    parsedRows = rows
-      .map((row) => {
-        const arr = Array.isArray(row) ? row.slice(sCol) : [];
-        if (eCol != null) {
-          return arr.slice(0, eCol - sCol + 1);
-        }
-        return arr;
-      })
-      .filter((row) => row.some((cell) => cell !== '' && cell != null));
-
+    parsedRows = sliceGrid(rawGrid);
     renderPreview(parsedRows);
     updateButtons();
   }

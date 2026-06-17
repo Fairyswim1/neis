@@ -19,16 +19,33 @@
     </div>
     <p class="preset-guide" id="presetGuide" hidden></p>
     <p class="help help-simple">
-      ① 메뉴 선택 → ② 엑셀 선택 → ③ <strong>전체 입력</strong> → ④ 첫 입력칸 클릭
+      ① 메뉴 선택 → ② 엑셀 <strong>파일</strong> 또는 <strong>복사 붙여넣기</strong> → ③ <strong>전체 입력</strong> → ④ 첫 입력칸 클릭
     </p>
   </section>
 
   <section class="card">
-    <label class="file-label" for="fileInput">
-      <span class="file-icon">📄</span>
-      <span id="fileName">엑셀 파일 선택 (.xlsx, .xls, .csv)</span>
-      <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" hidden />
-    </label>
+    <div class="source-tabs" role="tablist">
+      <button type="button" class="source-tab active" data-source="file" role="tab">파일</button>
+      <button type="button" class="source-tab" data-source="paste" role="tab">붙여넣기</button>
+    </div>
+
+    <div id="fileSource">
+      <label class="file-label" for="fileInput">
+        <span class="file-icon">📄</span>
+        <span id="fileName">엑셀 파일 선택 (.xlsx, .xls, .csv)</span>
+        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" hidden />
+      </label>
+    </div>
+
+    <div id="pasteSource" hidden>
+      <textarea
+        id="pasteInput"
+        class="paste-input"
+        rows="4"
+        placeholder="엑셀에서 셀을 선택 → Ctrl+C → 여기 클릭 → Ctrl+V"
+      ></textarea>
+      <button type="button" id="btnPasteLoad" class="btn paste-load">클립보드에서 불러오기</button>
+    </div>
 
     <div class="row" id="sheetRow" hidden>
       <label for="sheetSelect">시트</label>
