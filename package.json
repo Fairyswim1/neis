@@ -1,15 +1,25 @@
 {
-  "name": "neis-input-helper",
-  "version": "1.0.0",
-  "description": "엑셀 데이터를 나이스(NEIS) 입력창에 자동으로 붙여넣는 Chrome 확장 프로그램",
+  "name": "neis-copy-fairy",
+  "version": "2.0.0",
+  "description": "나이스 복붙 요정 - 엑셀 데이터를 NEIS에 자동 복붙하는 Chrome 확장",
   "scripts": {
     "icons": "node scripts/generate-icons.js",
+    "package": "node scripts/package-extension.js",
+    "store-screenshot": "node scripts/resize-store-screenshot.js",
     "postinstall": "node -e \"const fs=require('fs');const p='lib/xlsx.full.min.js';if(!fs.existsSync(p)){fs.mkdirSync('lib',{recursive:true});fs.copyFileSync('node_modules/xlsx/dist/xlsx.full.min.js',p);}\""
   },
-  "keywords": ["neis", "chrome-extension", "excel", "education"],
+  "keywords": [
+    "neis",
+    "chrome-extension",
+    "excel",
+    "education"
+  ],
   "author": "Fairyswim1",
   "license": "MIT",
   "dependencies": {
     "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "sharp": "^0.35.1"
   }
 }

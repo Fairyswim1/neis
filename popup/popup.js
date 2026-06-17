@@ -11,8 +11,13 @@
   const startCol = $('startCol');
   const endCol = $('endCol');
   const skipHeader = $('skipHeader');
+  const menuPreset = $('menuPreset');
+  const presetBadge = $('presetBadge');
+  const presetGuide = $('presetGuide');
+  const advancedSection = $('advancedSection');
   const tabsBetweenCells = $('tabsBetweenCells');
   const tabsAfterRow = $('tabsAfterRow');
+  const rowEndType = $('rowEndType');
   const delayMs = $('delayMs');
   const previewSection = $('previewSection');
   const previewMeta = $('previewMeta');
@@ -26,7 +31,15 @@
   let parsedRows = [];
   let currentRowIndex = 0;
 
+  initMenuPresets();
   loadSettings();
+  loadInputStatus();
+
+  chrome.storage.onChanged.addListener((changes) => {
+    if (changes.inputStatus || changes.inputStatusType) {
+      loadInputStatus();
+    }
+  });
 
   fileInput.addEventListener('change', handleFileSelect);
   sheetSelect.addEventListener('change', refreshPreview);
@@ -34,28 +47,122 @@
   startCol.addEventListener('change', refreshPreview);
   endCol.addEventListener('change', refreshPreview);
   skipHeader.addEventListener('change', refreshPreview);
-  tabsBetweenCells.addEventListener('change', saveSettings);
-  tabsAfterRow.addEventListener('change', saveSettings);
+  menuPreset.addEventListener('change', handlePresetChange);
+  tabsBetweenCells.addEventListener('change', handleManualSettingChange);
+  tabsAfterRow.addEventListener('change', handleManualSettingChange);
+  rowEndType.addEventListener('change', handleManualSettingChange);
   delayMs.addEventListener('change', saveSettings);
   btnAll.addEventListener('click', () => startInput('all'));
   btnOne.addEventListener('click', () => startInput('one'));
   btnStop.addEventListener('click', stopInput);
 
+  async function loadInputStatus() {
+    const data = await chrome.storage.local.get(['inputStatus', 'inputStatusType']);
+    if (data.inputStatus) setStatus(data.inputStatus, data.inputStatusType || '');
+  }
+
+  function initMenuPresets() {
+    menuPreset.innerHTML = '';
+    MENU_PRESET_ORDER.forEach((key) => {
+      const preset = MENU_PRESETS[key];
+      if (!preset) return;
+      const opt = document.createElement('option');
+      opt.value = key;
+      opt.textContent = preset.label;
+      menuPreset.appendChild(opt);
+    });
+  }
+
+  function updateAdvancedVisibility(isCustom) {
+    advancedSection.hidden = !isCustom;
+  }
+
+  function applyPreset(key, save = true) {
+    const preset = MENU_PRESETS[key] || MENU_PRESETS.custom;
+    menuPreset.value = key;
+    tabsBetweenCells.value = preset.tabsBetweenCells;
+    tabsAfterRow.value = preset.tabsAfterRow;
+    rowEndType.value = preset.rowEndType || 'enter';
+
+    const isCustom = key === 'custom';
+    tabsBetweenCells.disabled = !isCustom;
+    tabsAfterRow.disabled = !isCustom;
+    rowEndType.disabled = !isCustom;
+    presetBadge.textContent = isCustom ? '고급' : '';
+    updateAdvancedVisibility(isCustom);
+
+    if (preset.guide) {
+      presetGuide.textContent = preset.guide;
+      presetGuide.hidden = isCustom;
+    } else if (!isCustom) {
+      presetGuide.textContent = getPresetNavHint(preset);
+      presetGuide.hidden = false;
+    } else {
+      presetGuide.hidden = true;
+      presetGuide.textContent = '';
+    }
+
+    if (save) {
+      chrome.storage.local.set({
+        menuPreset: key,
+        tabsBetweenCells: preset.tabsBetweenCells,
+        tabsAfterRow: preset.tabsAfterRow,
+        rowEndType: preset.rowEndType || 'enter',
+        delayMs: Number(delayMs.value) || 100,
+      });
+    }
+  }
+
+  function handlePresetChange() {
+    applyPreset(menuPreset.value);
+  }
+
+  function handleManualSettingChange() {
+    if (menuPreset.value !== 'custom') {
+      menuPreset.value = 'custom';
+      tabsBetweenCells.disabled = false;
+      tabsAfterRow.disabled = false;
+      rowEndType.disabled = false;
+      presetBadge.textContent = '고급';
+      updateAdvancedVisibility(true);
+      presetGuide.hidden = true;
+    }
+    saveSettings();
+  }
+
   async function loadSettings() {
     const data = await chrome.storage.local.get([
+      'menuPreset',
       'tabsBetweenCells',
       'tabsAfterRow',
+      'rowEndType',
       'delayMs',
     ]);
-    if (data.tabsBetweenCells != null) tabsBetweenCells.value = data.tabsBetweenCells;
-    if (data.tabsAfterRow != null) tabsAfterRow.value = data.tabsAfterRow;
+
+    if (data.menuPreset && MENU_PRESETS[data.menuPreset]) {
+      applyPreset(data.menuPreset, false);
+    } else if (data.menuPreset == null) {
+      applyPreset('segmok', false);
+    }
+
+    if (data.tabsBetweenCells != null && data.menuPreset === 'custom') {
+      tabsBetweenCells.value = data.tabsBetweenCells;
+    }
+    if (data.tabsAfterRow != null && data.menuPreset === 'custom') {
+      tabsAfterRow.value = data.tabsAfterRow;
+    }
+    if (data.rowEndType != null && data.menuPreset === 'custom') {
+      rowEndType.value = data.rowEndType;
+    }
     if (data.delayMs != null) delayMs.value = data.delayMs;
   }
 
   function saveSettings() {
     chrome.storage.local.set({
+      menuPreset: menuPreset.value,
       tabsBetweenCells: Number(tabsBetweenCells.value),
       tabsAfterRow: Number(tabsAfterRow.value),
+      rowEndType: rowEndType.value,
       delayMs: Number(delayMs.value),
     });
   }
@@ -190,13 +297,43 @@
     btnOne.disabled = !hasData;
   }
 
+  function getPresetNavHint(preset) {
+    if (preset.guide) return preset.guide;
+    if (preset.rowEndType === 'enter') {
+      return '다음 행: Enter 키 · 칸 사이: Tab ' + preset.tabsBetweenCells + '번';
+    }
+    if (preset.rowEndType === 'tab') {
+      return `다음 행: Tab ${preset.tabsAfterRow}번 · 칸 사이: Tab ${preset.tabsBetweenCells}번`;
+    }
+    if (preset.rowEndType === 'enter-then-tab') {
+      return `다음 행: Enter → Tab ${preset.tabsAfterRow}번`;
+    }
+    return '다음 행: 자동 찾기';
+  }
+
+  function getInputSettings() {
+    const key = menuPreset.value;
+    const preset = MENU_PRESETS[key] || MENU_PRESETS.custom;
+    const isCustom = key === 'custom';
+
+    return {
+      tabsBetweenCells: isCustom
+        ? Number(tabsBetweenCells.value) || 0
+        : preset.tabsBetweenCells,
+      tabsAfterRow: isCustom ? Number(tabsAfterRow.value) || 0 : preset.tabsAfterRow,
+      rowEndType: isCustom ? rowEndType.value || 'enter' : preset.rowEndType || 'enter',
+    };
+  }
+
   function getConfig(mode) {
+    const input = getInputSettings();
     return {
       rows: parsedRows,
       startRow: mode === 'one' ? currentRowIndex : 0,
-      tabsBetweenCells: Number(tabsBetweenCells.value) || 0,
-      tabsAfterRow: Number(tabsAfterRow.value) || 0,
-      delayMs: Number(delayMs.value) || 150,
+      tabsBetweenCells: input.tabsBetweenCells,
+      tabsAfterRow: input.tabsAfterRow,
+      rowEndType: input.rowEndType,
+      delayMs: Number(delayMs.value) || 100,
       mode,
       skipEmptyRows: true,
     };
@@ -210,25 +347,6 @@
   function isNeisUrl(url) {
     if (!url) return false;
     return /\.neis\.go\.kr|\.eduptl\.kr/.test(url);
-  }
-
-  async function findFocusedFrame(tabId) {
-    const frames = await chrome.webNavigation.getAllFrames({ tabId });
-    for (const frame of frames) {
-      try {
-        const response = await chrome.tabs.sendMessage(
-          tabId,
-          { type: 'PING' },
-          { frameId: frame.frameId }
-        );
-        if (response?.hasFocus) {
-          return frame.frameId;
-        }
-      } catch {
-        // frame without content script
-      }
-    }
-    return null;
   }
 
   async function startInput(mode) {
@@ -250,26 +368,19 @@
       return;
     }
 
-    const frameId = await findFocusedFrame(tab.id);
-    if (frameId == null) {
-      setStatus('나이스 입력칸을 먼저 클릭한 뒤 다시 시도해 주세요.', 'error');
-      return;
-    }
-
     btnAll.disabled = true;
     btnOne.disabled = true;
     btnStop.hidden = false;
-    setStatus(mode === 'all' ? '전체 입력 중... (입력칸에 포커스 유지)' : `${currentRowIndex + 1}행 입력 중...`);
+    setStatus('5초 안에 나이스 첫 입력칸을 클릭하세요!');
 
     try {
       const config = getConfig(mode);
-      const messageType = mode === 'one' ? 'INPUT_ONE_ROW' : 'START_INPUT';
-
-      const response = await chrome.tabs.sendMessage(
-        tab.id,
-        { type: messageType, config },
-        { frameId }
-      );
+      const response = await chrome.runtime.sendMessage({
+        type: 'RUN_INPUT',
+        tabId: tab.id,
+        config,
+        mode,
+      });
 
       if (!response?.ok) {
         throw new Error(response?.error || '입력 실패');
@@ -277,23 +388,12 @@
 
       if (mode === 'one') {
         currentRowIndex = response.nextRowIndex ?? currentRowIndex + 1;
-        setStatus(
-          `${response.processedRows}행 입력 완료. 다음: ${currentRowIndex + 1}행`,
-          'success'
-        );
       } else {
         currentRowIndex = response.nextRowIndex ?? parsedRows.length;
-        if (response.stopped) {
-          setStatus(`중지됨. ${response.processedRows}행까지 입력`, 'success');
-        } else {
-          setStatus(`전체 ${response.processedRows}행 입력 완료`, 'success');
-        }
       }
     } catch (err) {
       const msg = err.message || String(err);
-      if (msg.includes('Receiving end does not exist')) {
-        setStatus('나이스 페이지를 새로고침한 뒤 다시 시도해 주세요.', 'error');
-      } else {
+      if (!msg.includes('message port closed')) {
         setStatus(msg, 'error');
       }
     } finally {
@@ -305,10 +405,7 @@
   async function stopInput() {
     const tab = await getActiveTab();
     if (tab?.id) {
-      const frameId = await findFocusedFrame(tab.id);
-      if (frameId != null) {
-        await chrome.tabs.sendMessage(tab.id, { type: 'STOP_INPUT' }, { frameId });
-      }
+      await chrome.runtime.sendMessage({ type: 'STOP_INPUT', tabId: tab.id });
     }
     setStatus('중지 요청됨...');
   }

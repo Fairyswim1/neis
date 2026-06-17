@@ -53,6 +53,14 @@
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  function isVisible(el) {
+    if (!el) return false;
+    const style = window.getComputedStyle(el);
+    if (style.display === 'none' || style.visibility === 'hidden') return false;
+    if (el.offsetParent === null && style.position !== 'fixed') return false;
+    return true;
+  }
+
   function getActiveElement() {
     const active = document.activeElement;
     if (active && active !== document.body && active !== document.documentElement) {
@@ -66,14 +74,15 @@
     const tag = el.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
     if (el.isContentEditable) return true;
+    if (el.getAttribute('role') === 'textbox') return true;
     return false;
   }
 
   function setElementValue(el, value) {
     const text = value == null ? '' : String(value);
+    el.focus();
 
     if (el.isContentEditable) {
-      el.focus();
       el.textContent = text;
       el.dispatchEvent(new InputEvent('input', { bubbles: true, data: text }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
@@ -100,57 +109,154 @@
       return;
     }
 
-    el.focus();
     document.execCommand('selectAll', false, null);
     document.execCommand('insertText', false, text);
   }
 
-  function getFocusableElements() {
-    const selector =
-      'input:not([disabled]):not([type="hidden"]), textarea:not([disabled]), select:not([disabled]), [contenteditable="true"]';
-    return Array.from(document.querySelectorAll(selector)).filter((el) => {
-      const style = window.getComputedStyle(el);
-      return style.display !== 'none' && style.visibility !== 'hidden';
-    });
+  function getTabIndex(el) {
+    const raw = el.getAttribute('tabindex');
+    if (raw === null) return 0;
+    const n = parseInt(raw, 10);
+    return Number.isNaN(n) ? 0 : n;
   }
 
-  function focusNextField() {
-    const focusable = getFocusableElements();
-    const current = document.activeElement;
-    const idx = focusable.indexOf(current);
-    if (idx >= 0 && idx < focusable.length - 1) {
-      focusable[idx + 1].focus();
-      return true;
+  /** 브라우저 Tab 순서와 비슷하게 — 버튼·숨김 tabindex 포함 */
+  function getTabbableElements() {
+    const selector = [
+      'a[href]',
+      'button:not([disabled])',
+      'input:not([disabled]):not([type="hidden"])',
+      'select:not([disabled])',
+      'textarea:not([disabled])',
+      '[tabindex]:not([tabindex="-1"])',
+      '[contenteditable="true"]',
+      '[role="textbox"]',
+    ].join(', ');
+
+    const elements = Array.from(document.querySelectorAll(selector)).filter(isVisible);
+
+    const positive = elements
+      .filter((el) => getTabIndex(el) > 0)
+      .sort((a, b) => getTabIndex(a) - getTabIndex(b) || sortByDocumentOrder(a, b));
+
+    const zero = elements
+      .filter((el) => getTabIndex(el) <= 0)
+      .sort(sortByDocumentOrder);
+
+    return [...positive, ...zero];
+  }
+
+  function sortByDocumentOrder(a, b) {
+    if (a === b) return 0;
+    const pos = a.compareDocumentPosition(b);
+    if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+    if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+    return 0;
+  }
+
+  function dispatchKeyOn(target, key, code, keyCode) {
+    for (const type of ['keydown', 'keypress', 'keyup']) {
+      target.dispatchEvent(
+        new KeyboardEvent(type, {
+          key,
+          code,
+          keyCode,
+          which: keyCode,
+          bubbles: true,
+          cancelable: true,
+          view: window,
+        })
+      );
     }
-
-    const target = document.activeElement || document.body;
-    target.dispatchEvent(
-      new KeyboardEvent('keydown', {
-        key: 'Tab',
-        code: 'Tab',
-        keyCode: 9,
-        which: 9,
-        bubbles: true,
-        cancelable: true,
-      })
-    );
-    target.dispatchEvent(
-      new KeyboardEvent('keyup', {
-        key: 'Tab',
-        code: 'Tab',
-        keyCode: 9,
-        which: 9,
-        bubbles: true,
-        cancelable: true,
-      })
-    );
-    return false;
   }
 
-  function dispatchTab(count) {
+  function findTabStopIndex(tabbable, el) {
+    let idx = tabbable.indexOf(el);
+    if (idx >= 0) return idx;
+    return tabbable.findIndex((node) => node === el || node.contains(el) || el.contains(node));
+  }
+
+  /** Tab N번 — 한 번에 한 칸만 이동 (중복 이동 방지) */
+  async function advanceTabStops(count, delayMs) {
+    const stepDelay = Math.max(delayMs, 180);
+
     for (let i = 0; i < count; i++) {
-      focusNextField();
+      const before = document.activeElement;
+
+      const target = isInputElement(before) ? before : document.body;
+      dispatchKeyOn(target, 'Tab', 'Tab', 9);
+
+      await sleep(stepDelay);
+
+      if (document.activeElement === before) {
+        const tabbable = getTabbableElements();
+        const idx = findTabStopIndex(tabbable, before);
+        if (idx >= 0 && idx < tabbable.length - 1) {
+          tabbable[idx + 1].focus();
+          await sleep(100);
+        }
+      }
     }
+  }
+
+  function pressEnter() {
+    const target =
+      isInputElement(document.activeElement) ? document.activeElement : document.body;
+    dispatchKeyOn(target, 'Enter', 'Enter', 13);
+  }
+
+  function findWritableInput() {
+    const active = getActiveElement();
+    if (isInputElement(active)) return active;
+
+    const tabbable = getTabbableElements();
+    for (const el of tabbable) {
+      if (isInputElement(el)) return el;
+    }
+
+    const textarea = document.querySelector('textarea:not([disabled])');
+    if (textarea && isVisible(textarea)) {
+      textarea.focus();
+      return textarea;
+    }
+
+    return null;
+  }
+
+  async function moveToNextCell(tabsBetweenCells, delayMs) {
+    if (tabsBetweenCells <= 0) return;
+    await advanceTabStops(tabsBetweenCells, delayMs);
+  }
+
+  async function moveToNextRow(config, rowIndex, totalRows) {
+    const { tabsAfterRow = 0, rowEndType = 'enter', delayMs = 100 } = config;
+    if (rowIndex >= totalRows - 1) return;
+
+    const rowDelay = Math.max(delayMs, 180);
+    const active = getActiveElement();
+    if (active) {
+      active.dispatchEvent(new Event('blur', { bubbles: true }));
+      await sleep(80);
+    }
+
+    if (rowEndType === 'enter') {
+      pressEnter();
+      await sleep(rowDelay);
+    } else if (rowEndType === 'tab') {
+      if (tabsAfterRow > 0) {
+        await advanceTabStops(tabsAfterRow, delayMs);
+      }
+    } else if (rowEndType === 'enter-then-tab') {
+      pressEnter();
+      await sleep(rowDelay);
+      if (tabsAfterRow > 0) {
+        await advanceTabStops(tabsAfterRow, delayMs);
+      }
+    }
+
+    await sleep(rowDelay);
+    const el = findWritableInput();
+    if (el) el.focus();
   }
 
   async function runInput(config) {
@@ -162,7 +268,8 @@
       startRow = 0,
       tabsBetweenCells = 1,
       tabsAfterRow = 0,
-      delayMs = 150,
+      rowEndType = 'enter',
+      delayMs = 100,
       mode = 'all',
       skipEmptyRows = true,
     } = config;
@@ -172,15 +279,13 @@
       throw new Error('입력할 데이터가 없습니다.');
     }
 
-    let activeEl = getActiveElement();
-    if (!isInputElement(activeEl)) {
+    if (!isInputElement(getActiveElement())) {
       isRunning = false;
       throw new Error('나이스 입력칸을 먼저 클릭한 후 다시 시도해 주세요.');
     }
 
     let currentRowIndex = startRow;
     let processedRows = 0;
-
     const endRow = mode === 'one' ? startRow + 1 : rows.length;
 
     try {
@@ -202,25 +307,30 @@
           const value = row[c];
           if (value === undefined) continue;
 
-          activeEl = getActiveElement();
-          if (!isInputElement(activeEl)) {
-            throw new Error(`${r + 1}행 ${c + 1}열: 입력칸을 찾을 수 없습니다.`);
+          let activeEl = findWritableInput();
+          if (!activeEl) {
+            const moveHint =
+              rowEndType === 'enter'
+                ? 'Enter 방식'
+                : `Tab ${tabsAfterRow}번 방식`;
+            throw new Error(
+              `${r + 1}행 ${c + 1}열: 입력칸을 찾을 수 없습니다. (${moveHint})`
+            );
           }
 
           setElementValue(activeEl, value);
           await sleep(delayMs);
 
           const isLastCell = c === row.length - 1;
-          const tabCount = isLastCell ? tabsAfterRow : tabsBetweenCells;
-          if (tabCount > 0) {
-            dispatchTab(tabCount);
-            await sleep(delayMs);
+          if (isLastCell) {
+            await moveToNextRow(config, r, endRow);
+          } else {
+            await moveToNextCell(tabsBetweenCells, delayMs);
           }
         }
 
         processedRows++;
         currentRowIndex = r + 1;
-
         if (mode === 'one') break;
       }
     } finally {

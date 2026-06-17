@@ -3,14 +3,25 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>나이스 입력 도우미</title>
+  <title>나이스 복붙 요정</title>
   <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
   <header>
-    <h1>나이스 입력 도우미</h1>
-    <p class="subtitle">엑셀 → 나이스 자동 입력</p>
+    <h1>🧚 나이스 복붙 요정</h1>
+    <p class="subtitle">엑셀 → 나이스, 요정이 대신 복붙!</p>
   </header>
+
+  <section class="card">
+    <div class="row">
+      <label for="menuPreset">나이스 메뉴</label>
+      <select id="menuPreset" class="wide-select"></select>
+    </div>
+    <p class="preset-guide" id="presetGuide" hidden></p>
+    <p class="help help-simple">
+      ① 메뉴 선택 → ② 엑셀 선택 → ③ <strong>전체 입력</strong> → ④ 첫 입력칸 클릭
+    </p>
+  </section>
 
   <section class="card">
     <label class="file-label" for="fileInput">
@@ -21,7 +32,7 @@
 
     <div class="row" id="sheetRow" hidden>
       <label for="sheetSelect">시트</label>
-      <select id="sheetSelect"></select>
+      <select id="sheetSelect" class="wide-select"></select>
     </div>
 
     <div class="row">
@@ -49,8 +60,8 @@
     </div>
   </section>
 
-  <section class="card">
-    <h2>입력 설정</h2>
+  <section class="card" id="advancedSection">
+    <h2>입력 설정 <span class="preset-badge" id="presetBadge"></span></h2>
     <div class="row">
       <label for="tabsBetweenCells">셀 간 Tab 횟수</label>
       <input type="number" id="tabsBetweenCells" min="0" max="20" value="1" />
@@ -58,14 +69,21 @@
     <div class="row">
       <label for="tabsAfterRow">행 끝 Tab 횟수</label>
       <input type="number" id="tabsAfterRow" min="0" max="20" value="0" />
+      <span class="hint">Tab 이동 시에만 사용</span>
+    </div>
+    <div class="row">
+      <label for="rowEndType">다음 행 이동</label>
+      <select id="rowEndType" class="wide-select">
+        <option value="enter" selected>Enter (수행평가 등)</option>
+        <option value="tab">Tab만 (행 끝 Tab 횟수 사용)</option>
+        <option value="enter-then-tab">Enter + Tab</option>
+        <option value="auto">자동 찾기</option>
+      </select>
     </div>
     <div class="row">
       <label for="delayMs">입력 간격 (ms)</label>
-      <input type="number" id="delayMs" min="50" max="2000" step="50" value="150" />
+      <input type="number" id="delayMs" min="50" max="2000" step="50" value="100" />
     </div>
-    <p class="help">
-      나이스 화면에서 <strong>첫 번째 입력칸</strong>을 클릭한 뒤 아래 버튼을 누르세요.
-    </p>
   </section>
 
   <section class="card preview-card" id="previewSection" hidden>
@@ -85,10 +103,11 @@
   <p class="status" id="status"></p>
 
   <footer>
-    <a href="https://github.com/Fairyswim1/neis" target="_blank" rel="noopener">GitHub</a>
+    <span class="credit">Made by IASA HJ</span>
   </footer>
 
   <script src="../lib/xlsx.full.min.js"></script>
+  <script src="presets.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
