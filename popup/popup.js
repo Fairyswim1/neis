@@ -18,7 +18,6 @@
   const skipHeader = $('skipHeader');
   const menuPreset = $('menuPreset');
   const presetBadge = $('presetBadge');
-  const presetGuide = $('presetGuide');
   const advancedSection = $('advancedSection');
   const tabsBetweenCells = $('tabsBetweenCells');
   const tabsAfterRow = $('tabsAfterRow');
@@ -102,24 +101,13 @@
     presetBadge.textContent = isCustom ? '고급' : '';
     updateAdvancedVisibility(isCustom);
 
-    if (preset.guide) {
-      presetGuide.textContent = preset.guide;
-      presetGuide.hidden = isCustom;
-    } else if (!isCustom) {
-      presetGuide.textContent = getPresetNavHint(preset);
-      presetGuide.hidden = false;
-    } else {
-      presetGuide.hidden = true;
-      presetGuide.textContent = '';
-    }
-
     if (save) {
       chrome.storage.local.set({
         menuPreset: key,
         tabsBetweenCells: preset.tabsBetweenCells,
         tabsAfterRow: preset.tabsAfterRow,
         rowEndType: preset.rowEndType || 'enter',
-        delayMs: Number(delayMs.value) || 100,
+        delayMs: Number(delayMs.value) || 70,
       });
     }
   }
@@ -136,7 +124,6 @@
       rowEndType.disabled = false;
       presetBadge.textContent = '고급';
       updateAdvancedVisibility(true);
-      presetGuide.hidden = true;
     }
     saveSettings();
   }
@@ -192,8 +179,16 @@
     pasteSource.hidden = source !== 'paste';
     sheetRow.hidden = source !== 'file' || !workbook || workbook.SheetNames.length <= 1;
 
-    if (source === 'paste' && !pasteInput.value.trim()) {
-      rawGrid = null;
+    if (source === 'paste') {
+      const text = pasteInput.value.trim();
+      if (text) {
+        const grid = parseClipboardText(text);
+        loadRawGrid(grid, `붙여넣기 (${grid.length}행)`);
+      } else {
+        rawGrid = null;
+        resetDataState();
+      }
+      return;
     }
 
     refreshPreview();
@@ -202,20 +197,64 @@
   function parseClipboardText(text) {
     if (!text || !text.trim()) return [];
 
-    const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
-    while (lines.length > 0 && lines[lines.length - 1] === '') {
-      lines.pop();
+    const rows = [];
+    let row = [];
+    let cell = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      const next = text[i + 1];
+
+      if (inQuotes) {
+        if (ch === '"' && next === '"') {
+          cell += '"';
+          i++;
+        } else if (ch === '"') {
+          inQuotes = false;
+        } else {
+          cell += ch;
+        }
+        continue;
+      }
+
+      if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === '\t') {
+        row.push(cell);
+        cell = '';
+      } else if (ch === '\n') {
+        row.push(cell);
+        rows.push(row);
+        row = [];
+        cell = '';
+      } else if (ch === '\r') {
+        if (next === '\n') i++;
+        row.push(cell);
+        rows.push(row);
+        row = [];
+        cell = '';
+      } else {
+        cell += ch;
+      }
     }
 
-    return lines.map((line) =>
-      line.split('\t').map((cell) => {
-        let val = cell;
-        if (val.startsWith('"') && val.endsWith('"') && val.length >= 2) {
-          val = val.slice(1, -1).replace(/""/g, '"');
-        }
-        return val;
-      })
-    );
+    row.push(cell);
+    if (row.some((c) => c !== '')) {
+      rows.push(row);
+    }
+
+    return rows;
+  }
+
+  function trimTrailingEmptyCols(row) {
+    const arr = Array.isArray(row) ? row.slice() : [];
+    while (arr.length > 0) {
+      const last = arr[arr.length - 1];
+      if (last !== '' && last != null) break;
+      arr.pop();
+    }
+    return arr;
   }
 
   function sliceGrid(raw) {
@@ -230,11 +269,11 @@
 
     return rows
       .map((row) => {
-        const arr = Array.isArray(row) ? row.slice(sCol) : [];
+        let arr = Array.isArray(row) ? row.slice(sCol) : [];
         if (eCol != null) {
-          return arr.slice(0, eCol - sCol + 1);
+          arr = arr.slice(0, eCol - sCol + 1);
         }
-        return arr;
+        return trimTrailingEmptyCols(arr);
       })
       .filter((row) => row.some((cell) => cell !== '' && cell != null));
   }
@@ -246,9 +285,23 @@
     refreshPreview();
   }
 
+  function resetDataState() {
+    currentRowIndex = 0;
+    parsedRows = [];
+    previewSection.hidden = true;
+    previewTable.innerHTML = '';
+    updateButtons();
+  }
+
   function handlePasteInput() {
     if (dataSource !== 'paste') return;
-    loadRawGrid(parseClipboardText(pasteInput.value), null);
+    const grid = parseClipboardText(pasteInput.value);
+    if (!grid.length) {
+      rawGrid = null;
+      resetDataState();
+      return;
+    }
+    loadRawGrid(grid, `붙여넣기 (${grid.length}행)`);
   }
 
   function handlePaste(e) {
@@ -310,8 +363,9 @@
       setStatus('파일 읽기 실패: ' + err.message, 'error');
       workbook = null;
       rawGrid = null;
-      parsedRows = [];
-      updateButtons();
+      resetDataState();
+    } finally {
+      fileInput.value = '';
     }
   }
 
@@ -320,6 +374,9 @@
       const sheetName = sheetSelect.value || workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
       rawGrid = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    } else if (dataSource === 'paste') {
+      const text = pasteInput.value.trim();
+      rawGrid = text ? parseClipboardText(text) : null;
     }
 
     if (!rawGrid || !rawGrid.length) {
@@ -393,20 +450,6 @@
     btnOne.disabled = !hasData;
   }
 
-  function getPresetNavHint(preset) {
-    if (preset.guide) return preset.guide;
-    if (preset.rowEndType === 'enter') {
-      return '다음 행: Enter 키 · 칸 사이: Tab ' + preset.tabsBetweenCells + '번';
-    }
-    if (preset.rowEndType === 'tab') {
-      return `다음 행: Tab ${preset.tabsAfterRow}번 · 칸 사이: Tab ${preset.tabsBetweenCells}번`;
-    }
-    if (preset.rowEndType === 'enter-then-tab') {
-      return `다음 행: Enter → Tab ${preset.tabsAfterRow}번`;
-    }
-    return '다음 행: 자동 찾기';
-  }
-
   function getInputSettings() {
     const key = menuPreset.value;
     const preset = MENU_PRESETS[key] || MENU_PRESETS.custom;
@@ -418,6 +461,7 @@
         : preset.tabsBetweenCells,
       tabsAfterRow: isCustom ? Number(tabsAfterRow.value) || 0 : preset.tabsAfterRow,
       rowEndType: isCustom ? rowEndType.value || 'enter' : preset.rowEndType || 'enter',
+      rowNav: preset.rowNav || 'default',
     };
   }
 
@@ -429,7 +473,8 @@
       tabsBetweenCells: input.tabsBetweenCells,
       tabsAfterRow: input.tabsAfterRow,
       rowEndType: input.rowEndType,
-      delayMs: Number(delayMs.value) || 100,
+      rowNav: input.rowNav,
+      delayMs: Number(delayMs.value) || 70,
       mode,
       skipEmptyRows: true,
     };
@@ -470,6 +515,7 @@
     setStatus('5초 안에 나이스 첫 입력칸을 클릭하세요!');
 
     try {
+      refreshPreview();
       const config = getConfig(mode);
       const response = await chrome.runtime.sendMessage({
         type: 'RUN_INPUT',

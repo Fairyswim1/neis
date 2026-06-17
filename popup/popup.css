@@ -4,10 +4,11 @@
   padding: 0;
 }
 
+html,
 body {
   width: 100%;
   min-width: 300px;
-  max-width: 360px;
+  min-height: 100%;
   font-family: 'Segoe UI', 'Malgun Gothic', sans-serif;
   font-size: 13px;
   color: #1e293b;
@@ -157,16 +158,6 @@ header h1 {
 .row select:disabled {
   background: #f1f5f9;
   color: #64748b;
-}
-
-.preset-guide {
-  margin-top: 10px;
-  padding: 8px 10px;
-  background: #ecfdf5;
-  border-radius: 6px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: #065f46;
 }
 
 .hint {

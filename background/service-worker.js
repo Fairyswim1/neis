@@ -4,7 +4,7 @@ chrome.runtime.onInstalled.addListener(() => {
     tabsBetweenCells: 1,
     tabsAfterRow: 2,
     rowEndType: 'tab',
-    delayMs: 100,
+    delayMs: 70,
     inputStatus: '',
   });
   setupSidePanel();

@@ -78,6 +78,23 @@
     return false;
   }
 
+  function delayAfterValue(value, baseDelay) {
+    const len = String(value ?? '').length;
+    if (len <= 80) return baseDelay;
+    if (len <= 300) return Math.max(baseDelay, 450);
+    return Math.max(baseDelay, 700 + Math.min(Math.floor(len / 6), 1500));
+  }
+
+  async function settleAfterInput(el, value, delayMs) {
+    const len = String(value ?? '').length;
+    await sleep(delayAfterValue(value, delayMs));
+    if (len > 80 && el) {
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      el.dispatchEvent(new Event('blur', { bubbles: true }));
+      await sleep(len > 300 ? 450 : 280);
+    }
+  }
+
   function setElementValue(el, value) {
     const text = value == null ? '' : String(value);
     el.focus();
@@ -176,9 +193,59 @@
     return tabbable.findIndex((node) => node === el || node.contains(el) || el.contains(node));
   }
 
-  /** Tab N번 — 한 번에 한 칸만 이동 (중복 이동 방지) */
+  const MIN_STEP_MS = 110;
+  const TEXT_ROW_STEP_MS = 160;
+
+  function getInputRect(el) {
+    const r = el.getBoundingClientRect();
+    return { x: r.left + r.width / 2, top: r.top, width: r.width };
+  }
+
+  function isWritableScoreInput(el) {
+    if (!el || !isInputElement(el)) return false;
+    if (el.tagName === 'SELECT') return false;
+    const type = (el.type || '').toLowerCase();
+    if (type === 'checkbox' || type === 'hidden' || type === 'button' || type === 'submit') {
+      return false;
+    }
+    return !el.disabled && !el.readOnly;
+  }
+
+  /** 지필평가 전용: Tab N번 후 같은 열 아래 행인지 확인, 아니면 추가 Tab */
+  async function moveToNextRowScoreTab(fromEl, config) {
+    const { tabsAfterRow = 6, delayMs = 100 } = config;
+    const stepDelay = Math.max(delayMs, MIN_STEP_MS);
+    const start = getInputRect(fromEl);
+    const xTol = Math.max(start.width * 0.75, 50);
+    const hadValue = String(fromEl.value ?? fromEl.textContent ?? '') !== '';
+
+    function isNextRowInput(now) {
+      if (!isWritableScoreInput(now)) return false;
+      const pos = getInputRect(now);
+      const yDiff = pos.top - start.top;
+      const xDiff = Math.abs(pos.x - start.x);
+      if (xDiff > xTol) return false;
+      if (yDiff > 8) return true;
+      if (now === fromEl && hadValue && String(now.value ?? now.textContent ?? '') === '') {
+        return true;
+      }
+      return false;
+    }
+
+    fromEl.dispatchEvent(new Event('blur', { bubbles: true }));
+    await sleep(80);
+
+    await advanceTabStops(tabsAfterRow, stepDelay);
+    if (isNextRowInput(getActiveElement())) return;
+
+    for (let i = 0; i < 18; i++) {
+      await advanceTabStops(1, stepDelay);
+      if (isNextRowInput(getActiveElement())) return;
+    }
+  }
+
   async function advanceTabStops(count, delayMs) {
-    const stepDelay = Math.max(delayMs, 180);
+    const stepDelay = Math.max(delayMs, MIN_STEP_MS);
 
     for (let i = 0; i < count; i++) {
       const before = document.activeElement;
@@ -193,7 +260,7 @@
         const idx = findTabStopIndex(tabbable, before);
         if (idx >= 0 && idx < tabbable.length - 1) {
           tabbable[idx + 1].focus();
-          await sleep(100);
+          await sleep(60);
         }
       }
     }
@@ -229,11 +296,22 @@
   }
 
   async function moveToNextRow(config, rowIndex, totalRows) {
-    const { tabsAfterRow = 0, rowEndType = 'enter', delayMs = 100 } = config;
+    const { tabsAfterRow = 0, rowEndType = 'enter', rowNav = 'default', delayMs = 100 } = config;
     if (rowIndex >= totalRows - 1) return;
 
-    const rowDelay = Math.max(delayMs, 180);
+    if (rowNav === 'score-tab') {
+      const active = getActiveElement();
+      if (active) {
+        await moveToNextRowScoreTab(active, config);
+      }
+      await sleep(Math.max(delayMs, MIN_STEP_MS));
+      return;
+    }
+
+    const tabStep = Math.max(delayMs, TEXT_ROW_STEP_MS);
+    const rowDelay = tabStep;
     const active = getActiveElement();
+
     if (active) {
       active.dispatchEvent(new Event('blur', { bubbles: true }));
       await sleep(80);
@@ -244,19 +322,21 @@
       await sleep(rowDelay);
     } else if (rowEndType === 'tab') {
       if (tabsAfterRow > 0) {
-        await advanceTabStops(tabsAfterRow, delayMs);
+        await advanceTabStops(tabsAfterRow, tabStep);
       }
     } else if (rowEndType === 'enter-then-tab') {
       pressEnter();
       await sleep(rowDelay);
       if (tabsAfterRow > 0) {
-        await advanceTabStops(tabsAfterRow, delayMs);
+        await advanceTabStops(tabsAfterRow, tabStep);
       }
     }
 
     await sleep(rowDelay);
-    const el = findWritableInput();
-    if (el) el.focus();
+    if (!isInputElement(getActiveElement())) {
+      const el = findWritableInput();
+      if (el) el.focus();
+    }
   }
 
   async function runInput(config) {
@@ -305,7 +385,7 @@
           if (shouldStop) break;
 
           const value = row[c];
-          if (value === undefined) continue;
+          if (value === undefined || value === '') continue;
 
           let activeEl = findWritableInput();
           if (!activeEl) {
@@ -319,13 +399,13 @@
           }
 
           setElementValue(activeEl, value);
-          await sleep(delayMs);
+          await settleAfterInput(activeEl, value, delayMs);
 
           const isLastCell = c === row.length - 1;
-          if (isLastCell) {
-            await moveToNextRow(config, r, endRow);
-          } else {
+          if (!isLastCell) {
             await moveToNextCell(tabsBetweenCells, delayMs);
+          } else if (mode !== 'one') {
+            await moveToNextRow(config, r, rows.length);
           }
         }
 

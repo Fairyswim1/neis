@@ -38,6 +38,7 @@ const MENU_PRESETS = {
     tabsBetweenCells: 1,
     tabsAfterRow: 6,
     rowEndType: 'tab',
+    rowNav: 'score-tab',
   },
   suhaeng: {
     label: '수행평가 점수 입력',
