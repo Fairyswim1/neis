@@ -72,7 +72,10 @@ async function runInputJob({ tabId, config, mode }) {
   }
 
   if (frameId == null) {
-    await setInputStatus('입력칸을 찾지 못했습니다. 입력칸 클릭 후 다시 시도해 주세요.', 'error');
+    await setInputStatus(
+      '입력칸을 찾지 못했습니다. 나이스 표 안 입력/점수 칸을 클릭한 뒤 다시 시도해 주세요.',
+      'error'
+    );
     return { ok: false, error: '입력칸 없음' };
   }
 

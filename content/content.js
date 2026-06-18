@@ -9,15 +9,9 @@
       sendResponse({
         ok: true,
         frame: window.location.href,
-        hasFocus: isInputElement(document.activeElement),
+        hasFocus: hasFocusedInput(),
       });
       return;
-    }
-
-    if (message.type === 'START_INPUT' || message.type === 'INPUT_ONE_ROW') {
-      if (!isInputElement(document.activeElement)) {
-        return;
-      }
     }
 
     if (message.type === 'START_INPUT') {
@@ -76,6 +70,54 @@
     if (el.isContentEditable) return true;
     if (el.getAttribute('role') === 'textbox') return true;
     return false;
+  }
+
+  function isWritableInput(el) {
+    if (!el || !isInputElement(el)) return false;
+    if (el.tagName === 'SELECT') return false;
+    const type = (el.type || '').toLowerCase();
+    if (type === 'checkbox' || type === 'hidden' || type === 'button' || type === 'submit') {
+      return false;
+    }
+    if (el.disabled || !isVisible(el)) return false;
+    if (el.readOnly && el !== document.activeElement) return false;
+    return true;
+  }
+
+  /** 클릭한 셀(td/div) 안의 input까지 포커스를 찾음 — 지필평가 그리드용 */
+  function resolveFocusedInput() {
+    const focused = document.querySelector(
+      'input:focus:not([type="hidden"]), textarea:focus, [contenteditable="true"]:focus, [role="textbox"]:focus'
+    );
+    if (focused && isWritableInput(focused)) return focused;
+
+    const active = document.activeElement;
+    if (!active || active === document.body || active === document.documentElement) {
+      return null;
+    }
+
+    if (isWritableInput(active)) return active;
+
+    const cellSelector = 'td, th, [role="gridcell"], [role="cell"]';
+    let node = active;
+    for (let depth = 0; depth < 6 && node; depth++) {
+      if (node.matches?.(cellSelector)) {
+        const inner = node.querySelector(
+          'input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), [contenteditable="true"], [role="textbox"]'
+        );
+        if (inner && isVisible(inner)) {
+          inner.focus();
+          if (isWritableInput(inner) || isInputElement(inner)) return inner;
+        }
+      }
+      node = node.parentElement;
+    }
+
+    return null;
+  }
+
+  function hasFocusedInput() {
+    return !!resolveFocusedInput();
   }
 
   function delayAfterValue(value, baseDelay) {
@@ -202,13 +244,7 @@
   }
 
   function isWritableScoreInput(el) {
-    if (!el || !isInputElement(el)) return false;
-    if (el.tagName === 'SELECT') return false;
-    const type = (el.type || '').toLowerCase();
-    if (type === 'checkbox' || type === 'hidden' || type === 'button' || type === 'submit') {
-      return false;
-    }
-    return !el.disabled && !el.readOnly;
+    return isWritableInput(el);
   }
 
   /** 지필평가 전용: Tab N번 후 같은 열 아래 행인지 확인, 아니면 추가 Tab */
@@ -218,15 +254,20 @@
     const start = getInputRect(fromEl);
     const xTol = Math.max(start.width * 0.75, 50);
     const hadValue = String(fromEl.value ?? fromEl.textContent ?? '') !== '';
+    let target = null;
 
-    function isNextRowInput(now) {
+    function captureNextRow(now) {
       if (!isWritableScoreInput(now)) return false;
       const pos = getInputRect(now);
       const yDiff = pos.top - start.top;
       const xDiff = Math.abs(pos.x - start.x);
       if (xDiff > xTol) return false;
-      if (yDiff > 8) return true;
+      if (yDiff > 8) {
+        target = now;
+        return true;
+      }
       if (now === fromEl && hadValue && String(now.value ?? now.textContent ?? '') === '') {
+        target = now;
         return true;
       }
       return false;
@@ -236,11 +277,25 @@
     await sleep(80);
 
     await advanceTabStops(tabsAfterRow, stepDelay);
-    if (isNextRowInput(getActiveElement())) return;
+    if (captureNextRow(resolveFocusedInput() || getActiveElement())) {
+      target?.focus();
+      await sleep(60);
+      return;
+    }
 
     for (let i = 0; i < 18; i++) {
       await advanceTabStops(1, stepDelay);
-      if (isNextRowInput(getActiveElement())) return;
+      if (captureNextRow(resolveFocusedInput() || getActiveElement())) {
+        target?.focus();
+        await sleep(60);
+        return;
+      }
+    }
+
+    const recovered = resolveFocusedInput();
+    if (recovered) {
+      recovered.focus();
+      await sleep(60);
     }
   }
 
@@ -272,13 +327,16 @@
     dispatchKeyOn(target, 'Enter', 'Enter', 13);
   }
 
-  function findWritableInput() {
-    const active = getActiveElement();
-    if (isInputElement(active)) return active;
+  function findWritableInput(config = {}) {
+    const resolved = resolveFocusedInput();
+    if (resolved) return resolved;
+
+    const isScore = config.rowNav === 'score-tab';
+    if (isScore) return null;
 
     const tabbable = getTabbableElements();
     for (const el of tabbable) {
-      if (isInputElement(el)) return el;
+      if (isWritableInput(el)) return el;
     }
 
     const textarea = document.querySelector('textarea:not([disabled])');
@@ -305,6 +363,8 @@
         await moveToNextRowScoreTab(active, config);
       }
       await sleep(Math.max(delayMs, MIN_STEP_MS));
+      const el = resolveFocusedInput();
+      if (el) el.focus();
       return;
     }
 
@@ -359,9 +419,13 @@
       throw new Error('입력할 데이터가 없습니다.');
     }
 
-    if (!isInputElement(getActiveElement())) {
+    if (!resolveFocusedInput()) {
       isRunning = false;
-      throw new Error('나이스 입력칸을 먼저 클릭한 후 다시 시도해 주세요.');
+      throw new Error(
+        config.rowNav === 'score-tab'
+          ? '지필평가 서답형 점수 칸을 클릭한 뒤 다시 시도해 주세요.'
+          : '나이스 입력칸을 먼저 클릭한 후 다시 시도해 주세요.'
+      );
     }
 
     let currentRowIndex = startRow;
@@ -387,12 +451,14 @@
           const value = row[c];
           if (value === undefined || value === '') continue;
 
-          let activeEl = findWritableInput();
+          let activeEl = findWritableInput(config);
           if (!activeEl) {
             const moveHint =
-              rowEndType === 'enter'
-                ? 'Enter 방식'
-                : `Tab ${tabsAfterRow}번 방식`;
+              config.rowNav === 'score-tab'
+                ? '지필평가 서답형 칸 클릭'
+                : rowEndType === 'enter'
+                  ? 'Enter 방식'
+                  : `Tab ${tabsAfterRow}번 방식`;
             throw new Error(
               `${r + 1}행 ${c + 1}열: 입력칸을 찾을 수 없습니다. (${moveHint})`
             );

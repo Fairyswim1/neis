@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "나이스 복붙 요정",
   "short_name": "복붙 요정",
-  "version": "2.0.1",
+  "version": "2.0.3",
   "description": "엑셀 데이터를 나이스(NEIS)에 복붙해 주는 요정! 세특·생기부 입력을 도와드립니다.",
   "permissions": ["storage", "activeTab", "scripting", "webNavigation", "sidePanel"],
   "host_permissions": [
