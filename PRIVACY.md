@@ -45,7 +45,6 @@
 |------|-----------|
 | `storage` | 사용자 설정(메뉴, Tab 설정) 저장 |
 | `activeTab` | 사용자가 실행한 나이스 탭에서만 동작 |
-| `scripting` | 나이스 입력칸에 데이터 입력 |
 | `webNavigation` | iframe 내부 입력칸 위치 확인 |
 | `sidePanel` | 사이드 패널 UI 표시 |
 | `*.neis.go.kr`, `*.eduptl.kr` 등 | 나이스 시스템 페이지에서만 동작 |
