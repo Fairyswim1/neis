@@ -490,6 +490,17 @@
     return /\.neis\.go\.kr|\.eduptl\.kr/.test(url);
   }
 
+  async function ensureContentScript(tabId) {
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        files: ['content/content.js'],
+      });
+    } catch {
+      // 이미 주입됨 또는 activeTab 미허용
+    }
+  }
+
   async function startInput(mode) {
     saveSettings();
 
@@ -512,9 +523,11 @@
     btnAll.disabled = true;
     btnOne.disabled = true;
     btnStop.hidden = false;
-    setStatus('5초 안에 나이스 첫 입력칸을 클릭하세요!');
+    setStatus('8초 안에 나이스 첫 입력칸을 클릭하세요!');
 
     try {
+      await chrome.tabs.update(tab.id, { active: true });
+      await ensureContentScript(tab.id);
       refreshPreview();
       const config = getConfig(mode);
       const response = await chrome.runtime.sendMessage({

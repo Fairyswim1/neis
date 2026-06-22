@@ -1,6 +1,9 @@
 (function () {
   'use strict';
 
+  if (globalThis.__NEIS_COPY_FAIRY__) return;
+  globalThis.__NEIS_COPY_FAIRY__ = true;
+
   let isRunning = false;
   let shouldStop = false;
 
