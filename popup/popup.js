@@ -32,17 +32,29 @@
   const btnAll = $('btnAll');
   const btnOne = $('btnOne');
   const btnStop = $('btnStop');
+  const statusBar = $('statusBar');
   const statusEl = $('status');
+  const fileOptions = $('fileOptions');
+
+  const CLICK_WAIT_SEC = 30;
 
   let workbook = null;
   let rawGrid = null;
   let dataSource = 'file';
   let parsedRows = [];
   let currentRowIndex = 0;
+  let isInputRunning = false;
 
   initMenuPresets();
   loadSettings();
   loadInputStatus();
+  updateButtons();
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && !isInputRunning) {
+      updateButtons();
+    }
+  });
 
   chrome.storage.onChanged.addListener((changes) => {
     if (changes.inputStatus || changes.inputStatusType) {
@@ -185,6 +197,20 @@
   function setStatus(msg, type = '') {
     statusEl.textContent = msg;
     statusEl.className = 'status' + (type ? ` ${type}` : '');
+    if (!statusBar) return;
+    statusBar.className = 'status-bar';
+    if (msg && type) statusBar.classList.add(`has-${type}`);
+  }
+
+  function updateFileOptionsVisibility(source) {
+    if (!fileOptions) return;
+    const isFile = source === 'file';
+    fileOptions.hidden = !isFile;
+    startRow.disabled = !isFile;
+    startCol.disabled = !isFile;
+    endCol.disabled = !isFile;
+    skipHeader.disabled = !isFile;
+    if (sheetSelect) sheetSelect.disabled = !isFile;
   }
 
   function switchDataSource(source) {
@@ -194,6 +220,7 @@
     });
     fileSource.hidden = source !== 'file';
     pasteSource.hidden = source !== 'paste';
+    updateFileOptionsVisibility(source);
     sheetRow.hidden = source !== 'file' || !workbook || workbook.SheetNames.length <= 1;
 
     if (source === 'paste') {
@@ -275,12 +302,13 @@
   }
 
   function sliceGrid(raw) {
-    const sRow = Math.max(1, Number(startRow.value) || 1) - 1;
-    const sCol = Math.max(1, Number(startCol.value) || 1) - 1;
-    const eCol = endCol.value ? Number(endCol.value) - 1 : null;
+    const isPaste = dataSource === 'paste';
+    const sRow = isPaste ? 0 : Math.max(1, Number(startRow.value) || 1) - 1;
+    const sCol = isPaste ? 0 : Math.max(1, Number(startCol.value) || 1) - 1;
+    const eCol = isPaste ? null : endCol.value ? Number(endCol.value) - 1 : null;
 
     let rows = raw.slice(sRow);
-    if (skipHeader.checked && rows.length > 0) {
+    if (!isPaste && skipHeader.checked && rows.length > 0) {
       rows = rows.slice(1);
     }
 
@@ -443,6 +471,9 @@
     }
 
     parsedRows = sliceGrid(rawGrid);
+    if (!parsedRows.length && rawGrid.some((row) => row?.some((c) => c !== '' && c != null))) {
+      setStatus('입력할 행이 없습니다. 시작 행·열 설정을 확인해 주세요.', 'error');
+    }
     renderPreview(parsedRows);
     updateButtons();
   }
@@ -502,8 +533,9 @@
 
   function updateButtons() {
     const hasData = parsedRows.length > 0;
-    btnAll.disabled = !hasData;
-    btnOne.disabled = !hasData;
+    const busy = isInputRunning;
+    btnAll.disabled = !hasData || busy;
+    btnOne.disabled = !hasData || busy || currentRowIndex >= parsedRows.length;
   }
 
   function getInputSettings() {
@@ -576,10 +608,11 @@
       return;
     }
 
+    isInputRunning = true;
     btnAll.disabled = true;
     btnOne.disabled = true;
     btnStop.hidden = false;
-    setStatus('8초 안에 나이스 첫 입력칸을 클릭하세요!');
+    setStatus(`${CLICK_WAIT_SEC}초 안에 나이스 첫 입력칸을 클릭하세요!`, 'wait');
 
     try {
       await chrome.tabs.update(tab.id, { active: true });
@@ -600,7 +633,7 @@
       if (mode === 'one') {
         currentRowIndex = response.nextRowIndex ?? currentRowIndex + 1;
       } else {
-        currentRowIndex = response.nextRowIndex ?? parsedRows.length;
+        currentRowIndex = 0;
       }
     } catch (err) {
       const msg = err.message || String(err);
@@ -608,6 +641,7 @@
         setStatus(msg, 'error');
       }
     } finally {
+      isInputRunning = false;
       btnStop.hidden = true;
       updateButtons();
     }
@@ -618,6 +652,8 @@
     if (tab?.id) {
       await chrome.runtime.sendMessage({ type: 'STOP_INPUT', tabId: tab.id });
     }
-    setStatus('중지 요청됨...');
+    isInputRunning = false;
+    setStatus('중지 요청됨...', 'wait');
+    updateButtons();
   }
 })();

@@ -46,33 +46,35 @@
       <button type="button" id="btnPasteLoad" class="btn paste-load">클립보드에서 불러오기</button>
     </div>
 
-    <div class="row" id="sheetRow" hidden>
-      <label for="sheetSelect">시트</label>
-      <select id="sheetSelect" class="wide-select"></select>
-    </div>
+    <div id="fileOptions">
+      <div class="row" id="sheetRow" hidden>
+        <label for="sheetSelect">시트</label>
+        <select id="sheetSelect" class="wide-select"></select>
+      </div>
 
-    <div class="row">
-      <label for="startRow">시작 행</label>
-      <input type="number" id="startRow" min="1" value="1" />
-      <span class="hint">(1 = 첫 번째 행)</span>
-    </div>
+      <div class="row">
+        <label for="startRow">시작 행</label>
+        <input type="number" id="startRow" min="1" value="1" />
+        <span class="hint">(1 = 첫 번째 행)</span>
+      </div>
 
-    <div class="row">
-      <label for="startCol">시작 열</label>
-      <input type="number" id="startCol" min="1" value="1" />
-    </div>
+      <div class="row">
+        <label for="startCol">시작 열</label>
+        <input type="number" id="startCol" min="1" value="1" />
+      </div>
 
-    <div class="row">
-      <label for="endCol">끝 열</label>
-      <input type="number" id="endCol" min="1" placeholder="자동" />
-      <span class="hint">비우면 마지막 열까지</span>
-    </div>
+      <div class="row">
+        <label for="endCol">끝 열</label>
+        <input type="number" id="endCol" min="1" placeholder="자동" />
+        <span class="hint">비우면 마지막 열까지</span>
+      </div>
 
-    <div class="row">
-      <label for="skipHeader">
-        <input type="checkbox" id="skipHeader" />
-        첫 행을 헤더로 건너뛰기
-      </label>
+      <div class="row">
+        <label for="skipHeader">
+          <input type="checkbox" id="skipHeader" />
+          첫 행을 헤더로 건너뛰기
+        </label>
+      </div>
     </div>
   </section>
 
@@ -165,7 +167,9 @@
     <button type="button" id="btnStop" class="btn danger" hidden>중지</button>
   </section>
 
-  <p class="status" id="status"></p>
+  <div class="status-bar" id="statusBar">
+    <p class="status" id="status"></p>
+  </div>
 
   <footer>
     <span class="credit">Made by IASA HJ</span>

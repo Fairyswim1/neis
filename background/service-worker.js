@@ -1,3 +1,5 @@
+const CLICK_WAIT_SEC = 30;
+
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.set({
     menuPreset: 'segmok',
@@ -93,7 +95,7 @@ async function setInputStatus(msg, type = '') {
 async function runInputJob({ tabId, config, mode }) {
   let alive = await pingAnyFrame(tabId);
   if (!alive) {
-    await setInputStatus('나이스 페이지 연결 중...', '');
+    await setInputStatus('나이스 페이지 연결 중...', 'wait');
     await ensureContentScripts(tabId);
     await sleep(400);
     alive = await pingAnyFrame(tabId);
@@ -107,11 +109,11 @@ async function runInputJob({ tabId, config, mode }) {
     return { ok: false, error: 'content script 없음' };
   }
 
-  await setInputStatus('8초 안에 나이스 첫 입력칸을 클릭하세요!', '');
+  await setInputStatus(`${CLICK_WAIT_SEC}초 안에 나이스 첫 입력칸을 클릭하세요!`, 'wait');
 
   let frameId = null;
-  for (let sec = 8; sec >= 1; sec--) {
-    await setInputStatus(`${sec}초 안에 나이스 첫 입력칸을 클릭하세요!`);
+  for (let sec = CLICK_WAIT_SEC; sec >= 1; sec--) {
+    await setInputStatus(`${sec}초 안에 나이스 첫 입력칸을 클릭하세요!`, 'wait');
     frameId = await waitForFocusedFrame(tabId, 1000);
     if (frameId != null) break;
   }
@@ -124,7 +126,7 @@ async function runInputJob({ tabId, config, mode }) {
     return { ok: false, error: '입력칸 없음' };
   }
 
-  await setInputStatus(mode === 'all' ? '전체 입력 중...' : '한 행 입력 중...');
+  await setInputStatus(mode === 'all' ? '전체 입력 중...' : '한 행 입력 중...', 'wait');
 
   const messageType = mode === 'one' ? 'INPUT_ONE_ROW' : 'START_INPUT';
   try {
