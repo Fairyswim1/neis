@@ -4,6 +4,7 @@
   const $ = (id) => document.getElementById(id);
 
   const fileInput = $('fileInput');
+  const fileDropZone = $('fileDropZone');
   const fileName = $('fileName');
   const fileSource = $('fileSource');
   const pasteSource = $('pasteSource');
@@ -19,6 +20,8 @@
   const menuPreset = $('menuPreset');
   const presetBadge = $('presetBadge');
   const advancedSection = $('advancedSection');
+  const btnAdvancedGuide = $('btnAdvancedGuide');
+  const advancedGuide = $('advancedGuide');
   const tabsBetweenCells = $('tabsBetweenCells');
   const tabsAfterRow = $('tabsAfterRow');
   const rowEndType = $('rowEndType');
@@ -48,6 +51,7 @@
   });
 
   fileInput.addEventListener('change', handleFileSelect);
+  setupFileDropZone();
   sourceTabs.forEach((tab) => tab.addEventListener('click', () => switchDataSource(tab.dataset.source)));
   pasteInput.addEventListener('paste', handlePaste);
   pasteInput.addEventListener('input', handlePasteInput);
@@ -65,6 +69,14 @@
   btnAll.addEventListener('click', () => startInput('all'));
   btnOne.addEventListener('click', () => startInput('one'));
   btnStop.addEventListener('click', stopInput);
+  btnAdvancedGuide.addEventListener('click', toggleAdvancedGuide);
+
+  function toggleAdvancedGuide() {
+    const open = advancedGuide.hidden;
+    advancedGuide.hidden = !open;
+    btnAdvancedGuide.setAttribute('aria-expanded', open ? 'true' : 'false');
+    btnAdvancedGuide.textContent = open ? '접기' : '사용 방법';
+  }
 
   async function loadInputStatus() {
     const data = await chrome.storage.local.get(['inputStatus', 'inputStatusType']);
@@ -85,6 +97,11 @@
 
   function updateAdvancedVisibility(isCustom) {
     advancedSection.hidden = !isCustom;
+    if (!isCustom) {
+      advancedGuide.hidden = true;
+      btnAdvancedGuide.setAttribute('aria-expanded', 'false');
+      btnAdvancedGuide.textContent = '사용 방법';
+    }
   }
 
   function applyPreset(key, save = true) {
@@ -331,8 +348,49 @@
     }
   }
 
+  function isExcelFile(file) {
+    if (!file) return false;
+    return /\.(xlsx|xls|csv)$/i.test(file.name);
+  }
+
+  function setupFileDropZone() {
+    if (!fileDropZone) return;
+
+    fileDropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      fileDropZone.classList.add('drag-over');
+    });
+
+    fileDropZone.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      if (!fileDropZone.contains(e.relatedTarget)) {
+        fileDropZone.classList.remove('drag-over');
+      }
+    });
+
+    fileDropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      fileDropZone.classList.remove('drag-over');
+      const file = e.dataTransfer?.files?.[0];
+      if (!file) return;
+      if (!isExcelFile(file)) {
+        setStatus('엑셀 파일(.xlsx, .xls, .csv)만 넣을 수 있습니다.', 'error');
+        return;
+      }
+      loadExcelFile(file);
+    });
+  }
+
   async function handleFileSelect(e) {
     const file = e.target.files[0];
+    if (!file) return;
+    await loadExcelFile(file);
+    fileInput.value = '';
+  }
+
+  async function loadExcelFile(file) {
     if (!file) return;
 
     dataSource = 'file';
@@ -364,8 +422,6 @@
       workbook = null;
       rawGrid = null;
       resetDataState();
-    } finally {
-      fileInput.value = '';
     }
   }
 
@@ -400,7 +456,7 @@
     previewSection.hidden = false;
     previewMeta.textContent = `총 ${rows.length}행 · ${rows[0]?.length || 0}열`;
 
-    const maxPreview = Math.min(rows.length, 8);
+    const maxPreview = Math.min(rows.length, 12);
     const cols = rows[0]?.length || 0;
 
     let html = '<thead><tr><th>#</th>';

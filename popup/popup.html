@@ -29,9 +29,9 @@
     </div>
 
     <div id="fileSource">
-      <label class="file-label" for="fileInput">
+      <label class="file-label" id="fileDropZone" for="fileInput">
         <span class="file-icon">📄</span>
-        <span id="fileName">엑셀 파일 선택 (.xlsx, .xls, .csv)</span>
+        <span id="fileName">엑셀 파일 선택 또는 드래그 (.xlsx, .xls, .csv)</span>
         <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" hidden />
       </label>
     </div>
@@ -77,7 +77,57 @@
   </section>
 
   <section class="card" id="advancedSection">
-    <h2>입력 설정 <span class="preset-badge" id="presetBadge"></span></h2>
+    <div class="advanced-header">
+      <h2>입력 설정 <span class="preset-badge" id="presetBadge"></span></h2>
+      <button type="button" id="btnAdvancedGuide" class="btn-guide" aria-expanded="false">
+        사용 방법
+      </button>
+    </div>
+    <div id="advancedGuide" class="advanced-guide" hidden>
+      <p class="guide-lead">나이스 화면마다 Tab·Enter 횟수가 다릅니다. <strong>보통은 위에서 메뉴를 고르면 됩니다.</strong> 이 설정은 화면이 프리셋과 다를 때만 바꾸세요.</p>
+
+      <h3 class="guide-heading">동작 순서 (한 학생)</h3>
+      <ol class="guide-steps">
+        <li>첫 칸에 값 입력</li>
+        <li>같은 학생 다음 칸이 있으면 → <strong>셀 간 Tab</strong> 만큼 이동</li>
+        <li>그 학생 입력이 끝나면 → <strong>다음 행 이동</strong> 방식으로 다음 학생으로</li>
+      </ol>
+
+      <h3 class="guide-heading">항목 설명</h3>
+      <dl class="guide-dl">
+        <dt>셀 간 Tab 횟수</dt>
+        <dd>한 학생 안에서 <strong>옆 칸</strong>으로 넘어갈 때 Tab을 몇 번 누를지. 칸이 1개면 <strong>1</strong>, 진로처럼 4칸이면 보통 <strong>1</strong>(칸마다 1번).</dd>
+        <dt>행 끝 Tab 횟수</dt>
+        <dd>한 학생 입력 후 <strong>다음 학생 첫 칸</strong>까지 Tab을 몇 번 누를지. 「Tab — 행 끝 Tab 횟수만큼」을 선택했을 때만 사용.</dd>
+        <dt>다음 행 이동</dt>
+        <dd>
+          <ul>
+            <li><strong>Enter</strong> — Enter만 눌러 다음 줄·다음 학생 (행 끝 Tab 무시)</li>
+            <li><strong>Tab</strong> — Tab만 <strong>행 끝 Tab 횟수</strong>만큼 (세특·행동특성·지필 등 대부분)</li>
+            <li><strong>Enter 후 Tab</strong> — Enter 먼저, 그다음 Tab 추가 (특수 화면만)</li>
+          </ul>
+        </dd>
+        <dt>입력 간격 (ms)</dt>
+        <dd>칸마다 기다리는 시간. 기본 <strong>70</strong>. 긴 글은 자동으로 더 기다립니다. 건너뛰면 <strong>100~150</strong>으로 올려 보세요.</dd>
+      </dl>
+
+      <h3 class="guide-heading">Tab 횟수 찾는 법</h3>
+      <ol class="guide-steps">
+        <li>나이스에서 <strong>1번 학생</strong> 입력칸 클릭</li>
+        <li>키보드 Tab을 직접 누르며 <strong>2번 학생 첫 칸</strong>까지 세기</li>
+        <li>그 횟수를 <strong>행 끝 Tab 횟수</strong>에 입력 · 「Tab — 행 끝 Tab 횟수만큼」 선택</li>
+        <li><strong>한 행 입력</strong>으로 1명만 테스트 후 <strong>전체 입력</strong></li>
+      </ol>
+
+      <h3 class="guide-heading">메뉴별 참고 (프리셋 값)</h3>
+      <ul class="guide-presets">
+        <li>세특·독서·행동특성 — 행 끝 Tab <strong>2</strong></li>
+        <li>진로희망 — 행 끝 Tab <strong>1</strong> · 엑셀 4열/학생</li>
+        <li>자율활동 — 행 끝 Tab <strong>3</strong></li>
+        <li>지필평가 — 행 끝 Tab <strong>6</strong></li>
+        <li>수행평가 — <strong>Enter</strong> (Tab 0)</li>
+      </ul>
+    </div>
     <div class="row">
       <label for="tabsBetweenCells">셀 간 Tab 횟수</label>
       <input type="number" id="tabsBetweenCells" min="0" max="20" value="1" />
@@ -85,15 +135,14 @@
     <div class="row">
       <label for="tabsAfterRow">행 끝 Tab 횟수</label>
       <input type="number" id="tabsAfterRow" min="0" max="20" value="0" />
-      <span class="hint">Tab 이동 시에만 사용</span>
+      <span class="hint">「Tab으로 다음 학생」일 때만</span>
     </div>
     <div class="row">
       <label for="rowEndType">다음 행 이동</label>
       <select id="rowEndType" class="wide-select">
-        <option value="enter" selected>Enter (수행평가 등)</option>
-        <option value="tab">Tab만 (행 끝 Tab 횟수 사용)</option>
-        <option value="enter-then-tab">Enter + Tab</option>
-        <option value="auto">자동 찾기</option>
+        <option value="enter" selected>Enter — 다음 학생(줄)로</option>
+        <option value="tab">Tab — 행 끝 Tab 횟수만큼</option>
+        <option value="enter-then-tab">Enter 후 Tab — 둘 다</option>
       </select>
     </div>
     <div class="row">
