@@ -41,17 +41,24 @@ async function pingAnyFrame(tabId) {
   return false;
 }
 
-/** activeTab 권한으로 기존 탭에 content script 주입 (스토어 설치 직후 F5 없이 동작) */
+/** activeTab·scripting으로 기존 탭에 content script 주입 */
 async function ensureContentScripts(tabId) {
-  try {
-    await chrome.scripting.executeScript({
-      target: { tabId, allFrames: true },
-      files: ['content/content.js'],
-    });
-    return true;
-  } catch {
-    return false;
+  let lastError = '';
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        files: ['content/content.js'],
+      });
+      await sleep(250);
+      if (await pingAnyFrame(tabId)) return true;
+    } catch (err) {
+      lastError = err?.message || String(err);
+    }
+    await sleep(300);
   }
+  console.warn('[복붙 요정] content script 주입 실패:', lastError);
+  return false;
 }
 
 async function findFocusedFrame(tabId) {
@@ -96,17 +103,14 @@ async function runInputJob({ tabId, config, mode }) {
   let alive = await pingAnyFrame(tabId);
   if (!alive) {
     await setInputStatus('나이스 페이지 연결 중...', 'wait');
-    await ensureContentScripts(tabId);
-    await sleep(400);
-    alive = await pingAnyFrame(tabId);
+    alive = await ensureContentScripts(tabId);
   }
 
   if (!alive) {
-    await setInputStatus(
-      '나이스 페이지를 F5로 새로고침한 뒤 다시 시도해 주세요. (스토어 설치 직후 필요)',
-      'error'
-    );
-    return { ok: false, error: 'content script 없음' };
+    const msg =
+      '나이스 페이지와 연결되지 않았습니다. 나이스 탭에서 F5(새로고침) 후 다시 시도해 주세요.';
+    await setInputStatus(msg, 'error');
+    return { ok: false, error: msg };
   }
 
   await setInputStatus(`${CLICK_WAIT_SEC}초 안에 나이스 첫 입력칸을 클릭하세요!`, 'wait');

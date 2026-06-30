@@ -1,13 +1,19 @@
 (function () {
   'use strict';
 
-  if (globalThis.__NEIS_COPY_FAIRY__) return;
-  globalThis.__NEIS_COPY_FAIRY__ = true;
+  const LISTENER_KEY = '__NEIS_COPY_FAIRY_LISTENER__';
+  if (globalThis[LISTENER_KEY]) {
+    try {
+      chrome.runtime.onMessage.removeListener(globalThis[LISTENER_KEY]);
+    } catch {
+      // ignore
+    }
+  }
 
   let isRunning = false;
   let shouldStop = false;
 
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  function onExtensionMessage(message, _sender, sendResponse) {
     if (message.type === 'PING') {
       sendResponse({
         ok: true,
@@ -44,7 +50,10 @@
         .catch((err) => sendResponse({ ok: false, error: err.message }));
       return true;
     }
-  });
+  }
+
+  globalThis[LISTENER_KEY] = onExtensionMessage;
+  chrome.runtime.onMessage.addListener(onExtensionMessage);
 
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -54,7 +63,9 @@
     if (!el) return false;
     const style = window.getComputedStyle(el);
     if (style.display === 'none' || style.visibility === 'hidden') return false;
-    if (el.offsetParent === null && style.position !== 'fixed') return false;
+    if (Number(style.opacity) === 0) return false;
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) return false;
     return true;
   }
 
@@ -130,14 +141,54 @@
     return Math.max(baseDelay, 700 + Math.min(Math.floor(len / 6), 1500));
   }
 
-  async function settleAfterInput(el, value, delayMs) {
+  /** 지필 점수 전용 대기 (세특·다른 메뉴와 분리) */
+  const SCORE_MIN_SETTLE_MS = 80;
+  const SCORE_POST_CHANGE_MS = 35;
+
+  function scoreSettleDelay(value, baseDelay) {
+    const text = String(value ?? '').trim();
+    let ms = Math.max(baseDelay, SCORE_MIN_SETTLE_MS);
+    if (text.length >= 3) ms += 25;
+    const n = parseFloat(text);
+    if (!Number.isNaN(n) && n >= 99) ms += 35;
+    return ms;
+  }
+
+  async function settleAfterInput(el, value, delayMs, options = {}) {
     const len = String(value ?? '').length;
-    await sleep(delayAfterValue(value, delayMs));
+    const waitMs = options.scoreTab ? scoreSettleDelay(value, delayMs) : delayAfterValue(value, delayMs);
+    await sleep(waitMs);
+    if (options.scoreTab && el) {
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      if (options.commitBlur !== false) {
+        el.dispatchEvent(new Event('blur', { bubbles: true }));
+      }
+      await sleep(SCORE_POST_CHANGE_MS);
+      return;
+    }
     if (len > 80 && el) {
       el.dispatchEvent(new Event('change', { bubbles: true }));
       el.dispatchEvent(new Event('blur', { bubbles: true }));
       await sleep(len > 300 ? 450 : 280);
     }
+  }
+
+  function normalizeScoreText(value) {
+    if (value == null || value === '') return '';
+    if (typeof value === 'number') {
+      if (Number.isFinite(value) && Math.abs(value - Math.round(value)) < 1e-6) {
+        return String(Math.round(value));
+      }
+      const rounded = Math.round(value * 100) / 100;
+      return String(rounded);
+    }
+    const text = String(value).trim();
+    const n = parseFloat(text.replace(/,/g, ''));
+    if (!Number.isNaN(n) && /^-?\d+(\.\d+)?$/.test(text.replace(/,/g, ''))) {
+      if (Math.abs(n - Math.round(n)) < 1e-6) return String(Math.round(n));
+      return String(Math.round(n * 100) / 100);
+    }
+    return text;
   }
 
   function setElementValue(el, value) {
@@ -247,15 +298,320 @@
   }
 
   function isWritableScoreInput(el) {
-    return isWritableInput(el);
+    if (!isWritableInput(el)) return false;
+    if (el.readOnly) return false;
+    return true;
+  }
+
+  function columnToleranceFor(rect) {
+    return Math.max(rect.width * 0.45, 20);
+  }
+
+  function findScrollableAncestor(el) {
+    let node = el?.parentElement;
+    while (node && node !== document.documentElement) {
+      const style = window.getComputedStyle(node);
+      const oy = style.overflowY;
+      if (
+        (oy === 'auto' || oy === 'scroll' || oy === 'overlay') &&
+        node.scrollHeight > node.clientHeight + 4
+      ) {
+        return node;
+      }
+      node = node.parentElement;
+    }
+    return document.scrollingElement || document.documentElement;
+  }
+
+  function isInScrollParentView(el, scroller, margin = 6) {
+    if (!el) return false;
+    const er = el.getBoundingClientRect();
+    if (er.width === 0 && er.height === 0) return false;
+    if (!scroller || scroller === document.scrollingElement || scroller === document.documentElement) {
+      return er.top >= margin && er.bottom <= window.innerHeight - margin;
+    }
+    const sr = scroller.getBoundingClientRect();
+    return er.top >= sr.top + margin && er.bottom <= sr.bottom - margin;
+  }
+
+  function estimateRowHeight(refEl) {
+    const row = findGridAncestor(refEl, GRID_ROW_SEL);
+    const h = row?.getBoundingClientRect().height;
+    if (h && h > 8) return h;
+    return 34;
+  }
+
+  async function scrollIntoScrollParent(el, scroller) {
+    if (!el) return;
+    const target = findGridAncestor(el, GRID_ROW_SEL) || el;
+
+    if (!scroller || scroller === document.scrollingElement || scroller === document.documentElement) {
+      try {
+        target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+      } catch {
+        target.scrollIntoView(false);
+      }
+      return;
+    }
+
+    const tr = target.getBoundingClientRect();
+    const sr = scroller.getBoundingClientRect();
+    const delta = tr.top - sr.top - (sr.height - tr.height) / 2;
+    scroller.scrollTop += delta;
+  }
+
+  async function scrollContainerDown(scroller, pixels, waitMs = 45) {
+    if (!scroller) return;
+    scroller.scrollTop += pixels;
+    await sleep(waitMs);
+  }
+
+  function pickScoreCandidate(scoreNav, offset, prevEl, lastTop) {
+    if (offset === 0) return scoreNav.getInput(0);
+    if (prevEl && scoreNav.getNextAfter) {
+      const next = scoreNav.getNextAfter(prevEl);
+      if (next) return next;
+    }
+    const byOffset = scoreNav.getInput(offset);
+    if (byOffset) return byOffset;
+    if (lastTop != null && scoreNav.findBelowY) return scoreNav.findBelowY(lastTop);
+    return null;
+  }
+
+  const GRID_CELL_SEL = 'td, th, [role="gridcell"], [role="cell"]';
+  const GRID_ROW_SEL = 'tr, [role="row"]';
+
+  function findGridAncestor(el, selector) {
+    let node = el;
+    for (let depth = 0; depth < 12 && node; depth++) {
+      if (node.matches?.(selector)) return node;
+      node = node.parentElement;
+    }
+    return null;
+  }
+
+  function rowGridCells(row) {
+    if (!row) return [];
+    const direct = Array.from(row.children).filter((el) => el.matches?.(GRID_CELL_SEL));
+    if (direct.length) return direct;
+    return Array.from(row.querySelectorAll(GRID_CELL_SEL));
+  }
+
+  function cellScoreInput(cell) {
+    if (!cell) return null;
+    const inner = cell.querySelector(
+      'input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), [contenteditable="true"]'
+    );
+    if (inner && isWritableScoreInput(inner)) return inner;
+    if (isWritableScoreInput(cell)) return cell;
+    return null;
+  }
+
+  /** 확대/축소와 무관하게 표 열 번호로 서답형 칸 탐색 */
+  function createTableScoreNavigator(startEl) {
+    const startCell = findGridAncestor(startEl, GRID_CELL_SEL);
+    const startRow = findGridAncestor(startEl, GRID_ROW_SEL);
+    if (!startCell || !startRow) return null;
+
+    const startCells = rowGridCells(startRow);
+    const colIdx = startCells.indexOf(startCell);
+    if (colIdx < 0) return null;
+
+    const container =
+      findGridAncestor(startRow, 'table, [role="grid"], tbody, thead') || startRow.parentElement;
+    if (!container) return null;
+
+    const scrollContainer = findScrollableAncestor(startRow);
+
+    function listDataRows() {
+      return Array.from(container.querySelectorAll(GRID_ROW_SEL)).filter((row) => {
+        const cells = rowGridCells(row);
+        return cells.length > colIdx && !!cellScoreInput(cells[colIdx]);
+      });
+    }
+
+    function inputAtRow(row) {
+      const cells = rowGridCells(row);
+      return cellScoreInput(cells[colIdx]);
+    }
+
+    const rows = listDataRows();
+    let baseIdx = rows.indexOf(startRow);
+    if (baseIdx < 0) baseIdx = 0;
+
+    return {
+      mode: 'table',
+      colIdx,
+      baseIdx,
+      container,
+      scrollContainer,
+      listDataRows,
+      getInput(offset) {
+        const dataRows = listDataRows();
+        const idx = baseIdx + offset;
+        if (idx < 0 || idx >= dataRows.length) return null;
+        return inputAtRow(dataRows[idx]);
+      },
+      getNextAfter(prevEl) {
+        const prevRow = findGridAncestor(prevEl, GRID_ROW_SEL);
+        const dataRows = listDataRows();
+        const i = dataRows.indexOf(prevRow);
+        if (i >= 0 && i + 1 < dataRows.length) {
+          return inputAtRow(dataRows[i + 1]);
+        }
+        return null;
+      },
+      findBelowY(minTop) {
+        let best = null;
+        let bestTop = Infinity;
+        for (const row of listDataRows()) {
+          const input = inputAtRow(row);
+          if (!input) continue;
+          const top = getInputRect(input).top;
+          if (top > minTop + 3 && top < bestTop) {
+            bestTop = top;
+            best = input;
+          }
+        }
+        return best;
+      },
+    };
+  }
+
+  function createXScoreNavigator(startEl) {
+    const anchorRect = getInputRect(startEl);
+    const xTol = columnToleranceFor(anchorRect);
+    const initial = getScoreColumnInputs(anchorRect, xTol);
+    let baseIdx = findScoreColumnIndex(initial, startEl);
+    if (baseIdx < 0) baseIdx = 0;
+    const scrollContainer = findScrollableAncestor(startEl);
+
+    return {
+      mode: 'x',
+      anchorRect,
+      xTol,
+      baseIdx,
+      scrollContainer,
+      getInput(offset) {
+        const inputs = getScoreColumnInputs(anchorRect, xTol);
+        const idx = baseIdx + offset;
+        return idx >= 0 && idx < inputs.length ? inputs[idx] : null;
+      },
+      findBelowY(minTop) {
+        const inputs = getScoreColumnInputs(anchorRect, xTol);
+        let best = null;
+        let bestTop = Infinity;
+        for (const input of inputs) {
+          const top = getInputRect(input).top;
+          if (top > minTop + 3 && top < bestTop) {
+            bestTop = top;
+            best = input;
+          }
+        }
+        return best;
+      },
+    };
+  }
+
+  function createScoreNavigator(startEl) {
+    return createTableScoreNavigator(startEl) || createXScoreNavigator(startEl);
+  }
+
+  function getScoreColumnInputs(anchorRect, xTol) {
+    const selector =
+      'input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), [contenteditable="true"]';
+    const candidates = Array.from(document.querySelectorAll(selector))
+      .filter(isWritableScoreInput)
+      .filter(isVisible)
+      .map((el) => ({ el, rect: getInputRect(el) }))
+      .filter(({ rect }) => Math.abs(rect.x - anchorRect.x) <= xTol)
+      .sort((a, b) => a.rect.top - b.rect.top || a.rect.x - b.rect.x);
+
+    const deduped = [];
+    for (const item of candidates) {
+      const last = deduped[deduped.length - 1];
+      if (last && Math.abs(item.rect.top - last.rect.top) < 6) continue;
+      deduped.push(item);
+    }
+    return deduped.map((i) => i.el);
+  }
+
+  function findScoreColumnIndex(inputs, el) {
+    if (!el) return -1;
+    let idx = inputs.indexOf(el);
+    if (idx >= 0) return idx;
+    return inputs.findIndex((node) => node === el || node.contains(el) || el.contains(node));
+  }
+
+  async function focusScoreCell(el, scroller) {
+    const scrollParent = scroller || findScrollableAncestor(el);
+    if (!isInScrollParentView(el, scrollParent)) {
+      await scrollIntoScrollParent(el, scrollParent);
+      await sleep(28);
+    }
+    el.focus();
+    el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await sleep(35);
+  }
+
+  async function revealScoreInput(scoreNav, offset, prevEl, lastTop) {
+    const scroller = scoreNav.scrollContainer || findScrollableAncestor(prevEl);
+    const rowStep = estimateRowHeight(prevEl || document.activeElement);
+
+    let el = pickScoreCandidate(scoreNav, offset, prevEl, lastTop);
+    if (el && isInScrollParentView(el, scroller)) {
+      await focusScoreCell(el, scroller);
+      return el;
+    }
+
+    if (el) {
+      await scrollIntoScrollParent(el, scroller);
+      await sleep(30);
+      if (isInScrollParentView(el, scroller)) {
+        await focusScoreCell(el, scroller);
+        return el;
+      }
+    }
+
+    for (let attempt = 0; attempt < 22; attempt++) {
+      el = pickScoreCandidate(scoreNav, offset, prevEl, lastTop);
+      if (el) {
+        await scrollIntoScrollParent(el, scroller);
+        await sleep(28);
+        if (isInScrollParentView(el, scroller)) {
+          await focusScoreCell(el, scroller);
+          return el;
+        }
+      }
+      await scrollContainerDown(scroller, rowStep);
+    }
+
+    return null;
+  }
+
+  async function resolveScoreInput(scoreNav, offset, config, prevEl, lastTop) {
+    const el = await revealScoreInput(scoreNav, offset, prevEl, lastTop);
+    if (el) return el;
+
+    if (offset > 0 && prevEl && config.rowNav === 'score-tab') {
+      const anchor = getInputRect(prevEl);
+      await moveToNextRowScoreTab(prevEl, config, anchor, columnToleranceFor(anchor));
+      await sleep(Math.max(config.delayMs || 100, MIN_STEP_MS));
+      const recovered = resolveFocusedInput();
+      if (recovered) return recovered;
+    }
+
+    return null;
   }
 
   /** 지필평가 전용: Tab N번 후 같은 열 아래 행인지 확인, 아니면 추가 Tab */
-  async function moveToNextRowScoreTab(fromEl, config) {
+  async function moveToNextRowScoreTab(fromEl, config, anchorRect, xTol) {
     const { tabsAfterRow = 6, delayMs = 100 } = config;
     const stepDelay = Math.max(delayMs, MIN_STEP_MS);
-    const start = getInputRect(fromEl);
-    const xTol = Math.max(start.width * 0.75, 50);
+    const start = anchorRect || getInputRect(fromEl);
+    const tol = xTol ?? columnToleranceFor(start);
     const hadValue = String(fromEl.value ?? fromEl.textContent ?? '') !== '';
     let target = null;
 
@@ -264,7 +620,7 @@
       const pos = getInputRect(now);
       const yDiff = pos.top - start.top;
       const xDiff = Math.abs(pos.x - start.x);
-      if (xDiff > xTol) return false;
+      if (xDiff > tol) return false;
       if (yDiff > 8) {
         target = now;
         return true;
@@ -363,7 +719,9 @@
     if (rowNav === 'score-tab') {
       const active = getActiveElement();
       if (active) {
-        await moveToNextRowScoreTab(active, config);
+        const anchor = getInputRect(active);
+        const xTol = columnToleranceFor(anchor);
+        await moveToNextRowScoreTab(active, config, anchor, xTol);
       }
       await sleep(Math.max(delayMs, MIN_STEP_MS));
       const el = resolveFocusedInput();
@@ -434,6 +792,23 @@
     let currentRowIndex = startRow;
     let processedRows = 0;
     const endRow = mode === 'one' ? startRow + 1 : rows.length;
+    const isScoreColumn = config.rowNav === 'score-tab';
+    let scoreNav = null;
+    let lastScoreEl = null;
+    let lastScoreTop = null;
+
+    if (isScoreColumn) {
+      const startEl = resolveFocusedInput();
+      if (!startEl) {
+        isRunning = false;
+        throw new Error('지필평가 서답형 점수 칸을 클릭한 뒤 다시 시도해 주세요.');
+      }
+      scoreNav = createScoreNavigator(startEl);
+      if (!scoreNav) {
+        isRunning = false;
+        throw new Error('지필평가 표에서 서답형 점수 칸을 클릭한 뒤 다시 시도해 주세요.');
+      }
+    }
 
     try {
       for (let r = startRow; r < endRow; r++) {
@@ -451,14 +826,23 @@
         for (let c = 0; c < row.length; c++) {
           if (shouldStop) break;
 
-          const value = row[c];
-          if (value === undefined || value === '') continue;
+          const rawValue = row[c];
+          if (rawValue === undefined || rawValue === '') continue;
+          const value = isScoreColumn ? normalizeScoreText(rawValue) : rawValue;
 
-          let activeEl = findWritableInput(config);
+          let activeEl = null;
+          const scoreOffset = r - startRow;
+
+          if (isScoreColumn) {
+            activeEl = await resolveScoreInput(scoreNav, scoreOffset, config, lastScoreEl, lastScoreTop);
+          } else {
+            activeEl = findWritableInput(config);
+          }
+
           if (!activeEl) {
             const moveHint =
               config.rowNav === 'score-tab'
-                ? '지필평가 서답형 칸 클릭'
+                ? '표를 조금 위로 올린 뒤 1번 학생 서답형 칸을 다시 클릭'
                 : rowEndType === 'enter'
                   ? 'Enter 방식'
                   : `Tab ${tabsAfterRow}번 방식`;
@@ -468,13 +852,23 @@
           }
 
           setElementValue(activeEl, value);
-          await settleAfterInput(activeEl, value, delayMs);
+          await settleAfterInput(activeEl, value, delayMs, {
+            scoreTab: isScoreColumn,
+            commitBlur: !(isScoreColumn && scoreNav),
+          });
+
+          lastScoreEl = activeEl;
+          lastScoreTop = getInputRect(activeEl).top;
 
           const isLastCell = c === row.length - 1;
           if (!isLastCell) {
             await moveToNextCell(tabsBetweenCells, delayMs);
-          } else if (mode !== 'one') {
+          } else if (mode !== 'one' && !isScoreColumn) {
             await moveToNextRow(config, r, rows.length);
+          } else if (mode !== 'one' && isScoreColumn && !scoreNav) {
+            await moveToNextRow(config, r, rows.length);
+          } else if (mode !== 'one' && isScoreColumn) {
+            await sleep(15);
           }
         }
 

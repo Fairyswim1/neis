@@ -39,6 +39,7 @@ const MENU_PRESETS = {
     tabsAfterRow: 6,
     rowEndType: 'tab',
     rowNav: 'score-tab',
+    delayMs: 80,
   },
   suhaeng: {
     label: '수행평가 점수 입력',

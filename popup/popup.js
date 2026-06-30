@@ -122,6 +122,7 @@
     tabsBetweenCells.value = preset.tabsBetweenCells;
     tabsAfterRow.value = preset.tabsAfterRow;
     rowEndType.value = preset.rowEndType || 'enter';
+    if (preset.delayMs != null) delayMs.value = preset.delayMs;
 
     const isCustom = key === 'custom';
     tabsBetweenCells.disabled = !isCustom;
@@ -301,6 +302,23 @@
     return arr;
   }
 
+  function normalizeCellValue(cell) {
+    if (cell == null || cell === '') return cell;
+    if (typeof cell === 'number') {
+      if (Number.isFinite(cell) && Math.abs(cell - Math.round(cell)) < 1e-6) {
+        return Math.round(cell);
+      }
+      return Math.round(cell * 100) / 100;
+    }
+    const text = String(cell).trim();
+    const n = parseFloat(text.replace(/,/g, ''));
+    if (!Number.isNaN(n) && /^-?\d+(\.\d+)?$/.test(text.replace(/,/g, ''))) {
+      if (Math.abs(n - Math.round(n)) < 1e-6) return Math.round(n);
+      return Math.round(n * 100) / 100;
+    }
+    return cell;
+  }
+
   function sliceGrid(raw) {
     const isPaste = dataSource === 'paste';
     const sRow = isPaste ? 0 : Math.max(1, Number(startRow.value) || 1) - 1;
@@ -320,6 +338,7 @@
         }
         return trimTrailingEmptyCols(arr);
       })
+      .map((row) => row.map((cell) => normalizeCellValue(cell)))
       .filter((row) => row.some((cell) => cell !== '' && cell != null));
   }
 
@@ -579,14 +598,19 @@
   }
 
   async function ensureContentScript(tabId) {
-    try {
-      await chrome.scripting.executeScript({
-        target: { tabId, allFrames: true },
-        files: ['content/content.js'],
-      });
-    } catch {
-      // 이미 주입됨 또는 activeTab 미허용
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId, allFrames: true },
+          files: ['content/content.js'],
+        });
+        await new Promise((r) => setTimeout(r, 200));
+        return true;
+      } catch {
+        await new Promise((r) => setTimeout(r, 250));
+      }
     }
+    return false;
   }
 
   async function startInput(mode) {
