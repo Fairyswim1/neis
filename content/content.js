@@ -191,15 +191,34 @@
     return text;
   }
 
-  function setElementValue(el, value) {
-    const text = value == null ? '' : String(value);
+  function getElementExistingText(el) {
+    if (!el) return '';
+    if (el.isContentEditable) return el.textContent || '';
+    if ('value' in el) return el.value || '';
+    return '';
+  }
+
+  /** 기존 글 끝의 공백·개행을 정리한 뒤 다음 줄부터 이어 붙인다. */
+  function composeAppendText(existing, incoming) {
+    const next = incoming == null ? '' : String(incoming);
+    const prev = String(existing || '').replace(/\s+$/, '');
+    if (!prev) return next;
+    if (!next) return prev;
+    return prev + '\n' + next;
+  }
+
+  function setElementValue(el, value, options = {}) {
+    let text = value == null ? '' : String(value);
+    if (options.append) {
+      text = composeAppendText(getElementExistingText(el), text);
+    }
     el.focus();
 
     if (el.isContentEditable) {
       el.textContent = text;
       el.dispatchEvent(new InputEvent('input', { bubbles: true, data: text }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
-      return;
+      return text;
     }
 
     const tag = el.tagName;
@@ -219,11 +238,12 @@
       }
       el.dispatchEvent(new Event('input', { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
-      return;
+      return text;
     }
 
     document.execCommand('selectAll', false, null);
     document.execCommand('insertText', false, text);
+    return text;
   }
 
   function getTabIndex(el) {
@@ -851,8 +871,9 @@
             );
           }
 
-          setElementValue(activeEl, value);
-          await settleAfterInput(activeEl, value, delayMs, {
+          const append = !!config.appendMode && !isScoreColumn;
+          const written = setElementValue(activeEl, value, { append });
+          await settleAfterInput(activeEl, written, delayMs, {
             scoreTab: isScoreColumn,
             commitBlur: !(isScoreColumn && scoreNav),
           });

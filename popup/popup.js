@@ -26,6 +26,7 @@
   const tabsAfterRow = $('tabsAfterRow');
   const rowEndType = $('rowEndType');
   const delayMs = $('delayMs');
+  const appendMode = $('appendMode');
   const previewSection = $('previewSection');
   const previewMeta = $('previewMeta');
   const previewTable = $('previewTable');
@@ -78,6 +79,7 @@
   tabsAfterRow.addEventListener('change', handleManualSettingChange);
   rowEndType.addEventListener('change', handleManualSettingChange);
   delayMs.addEventListener('change', saveSettings);
+  appendMode.addEventListener('change', saveSettings);
   btnAll.addEventListener('click', () => startInput('all'));
   btnOne.addEventListener('click', () => startInput('one'));
   btnStop.addEventListener('click', stopInput);
@@ -165,6 +167,7 @@
       'tabsAfterRow',
       'rowEndType',
       'delayMs',
+      'appendMode',
     ]);
 
     if (data.menuPreset && MENU_PRESETS[data.menuPreset]) {
@@ -183,6 +186,7 @@
       rowEndType.value = data.rowEndType;
     }
     if (data.delayMs != null) delayMs.value = data.delayMs;
+    if (data.appendMode != null) appendMode.checked = !!data.appendMode;
   }
 
   function saveSettings() {
@@ -192,6 +196,7 @@
       tabsAfterRow: Number(tabsAfterRow.value),
       rowEndType: rowEndType.value,
       delayMs: Number(delayMs.value),
+      appendMode: !!appendMode.checked,
     });
   }
 
@@ -582,6 +587,7 @@
       rowEndType: input.rowEndType,
       rowNav: input.rowNav,
       delayMs: Number(delayMs.value) || 70,
+      appendMode: !!appendMode.checked,
       mode,
       skipEmptyRows: true,
     };
